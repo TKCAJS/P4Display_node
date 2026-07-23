@@ -15,8 +15,9 @@ transceiver is wired to JP1 (TX=GPIO33, RX=GPIO31).
 |---|---|
 | `t89_ui` (default) | the real dashboard: SquareLine UI + GaugeUpdater + SDLogger + PitServer, stubbed CAN |
 | `c6_wifi` | C6 co-processor tool: reports/updates ESP-Hosted slave firmware (embedded image), SoftAP test |
-| `colorbar_test` | phase-1 bring-up proof: raw framebuffer color bars + touch echo |
-| `lvgl_test` / `lvgl9_test` | LVGL 8.3 / 9.5 demo UI on the PPA-rotate glue |
+
+Phase-1/2 bring-up envs (`colorbar_test`, `lvgl_test`, `lvgl9_test`) were removed once
+`t89_ui` superseded them — see git history if that scaffolding is needed again.
 
 Flash: `pio run -e t89_ui -t upload` (board enumerates on the **High-Speed**
 USB-C port only, as `/dev/ttyACM0`).
