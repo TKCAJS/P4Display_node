@@ -53,6 +53,39 @@ static bool               s_started    = false;
 /* LVGL callbacks                                                        */
 /* ===================================================================== */
 
+/* PPA destination alignment.
+ *
+ * Every dirty area becomes one PPA SRM transaction that writes a rotated block
+ * into the middle of the native framebuffer in PSRAM. driver/ppa.h requires the
+ * output *buffer* to be cache-line aligned but says nothing about where a block
+ * may start inside it, and feeding the engine a stream of small, arbitrarily
+ * offset blocks eventually wedges a transaction. The flush runs in
+ * PPA_TRANS_MODE_BLOCKING, so that call never returns: the panel freezes while
+ * the rest of the node keeps running.
+ *
+ * Snapping every invalidated area out to a 32 px grid puts each destination
+ * block on a 64-byte boundary — the P4's L1 cache line — in both axes. 32 px of
+ * RGB565 is exactly 64 bytes, and the native FB is 480x800, both multiples of
+ * 32, so a block rotated to native x = 480 - ly - lh stays on the same grid.
+ * No PPA write can land on a partial cache line. Clamping to 799/479 keeps the
+ * alignment, since both are one less than a multiple of 32.
+ */
+#define FLUSH_ALIGN 32
+
+static void invalidate_area_cb(lv_event_t *e)
+{
+    lv_area_t *a = lv_event_get_invalidated_area(e);
+
+    if (a->x1 < 0) a->x1 = 0;
+    if (a->y1 < 0) a->y1 = 0;
+    a->x1 &= ~(FLUSH_ALIGN - 1);
+    a->y1 &= ~(FLUSH_ALIGN - 1);
+    a->x2 |= (FLUSH_ALIGN - 1);
+    a->y2 |= (FLUSH_ALIGN - 1);
+    if (a->x2 >= LV_HOR) a->x2 = LV_HOR - 1;
+    if (a->y2 >= LV_VER) a->y2 = LV_VER - 1;
+}
+
 static void disp_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map)
 {
     /* RENDER_MODE_PARTIAL: LVGL hands us only the invalidated areas, un-rotated
@@ -160,13 +193,16 @@ bool lvgl_glue_start(bool run_service_task)
     /* 1. LVGL core. */
     lv_init();
 
-    /* 2. ONE partial draw buffer, a 120-row logical stripe (800*120*2B =
-     *    187.5KB), preferably in INTERNAL RAM: LVGL's software renderer is
+    /* 2. ONE partial draw buffer, a 128-row logical stripe (800*128*2B =
+     *    200KB), preferably in INTERNAL RAM: LVGL's software renderer is
      *    memory-bandwidth-bound, and internal SRAM is far faster to render
      *    into than PSRAM. The PPA reads it via DMA (internal RAM is
      *    DMA-capable). A second buffer buys nothing here — the flush
-     *    PPA-rotates in BLOCKING mode, so render and flush never overlap. */
-    const size_t buf_bytes = (size_t)LV_HOR * 120 * sizeof(uint16_t);
+     *    PPA-rotates in BLOCKING mode, so render and flush never overlap.
+     *    128 rows, not 120: an area too tall for the buffer is split into
+     *    max_row-high chunks, and only a multiple of FLUSH_ALIGN keeps those
+     *    chunk boundaries on the aligned grid invalidate_area_cb() sets up. */
+    const size_t buf_bytes = (size_t)LV_HOR * 128 * sizeof(uint16_t);
     s_buf1 = (uint16_t *)heap_caps_malloc(buf_bytes,
                                           MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA);
     if (!s_buf1) {
@@ -185,6 +221,7 @@ bool lvgl_glue_start(bool run_service_task)
         return false;
     }
     lv_display_set_flush_cb(s_disp, disp_flush_cb);
+    lv_display_add_event_cb(s_disp, invalidate_area_cb, LV_EVENT_INVALIDATE_AREA, NULL);
     lv_display_set_buffers(s_disp, s_buf1, NULL, buf_bytes,
                            LV_DISPLAY_RENDER_MODE_PARTIAL);
     /* Force the refresh period rather than trusting LV_DEF_REFR_PERIOD: the

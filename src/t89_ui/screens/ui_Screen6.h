@@ -14,6 +14,10 @@ extern lv_obj_t * ui_Screen6;
 extern lv_obj_t * ui_Screen6_dashboardbutton;
 extern lv_obj_t * ui_Screen6_menubutton;
 
+// Feed the rev counter. Smooths internally and is a no-op unless Screen6 is the
+// screen currently on the panel, so it is safe to call every gauge tick.
+void ui_Screen6_set_rpm(uint16_t rpm);
+
 #ifdef __cplusplus
 } /*extern "C"*/
 #endif
