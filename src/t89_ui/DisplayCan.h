@@ -43,7 +43,7 @@ inline CanSnapshot canGetSnapshot() {
     s.engineTemp   = s.radiatorTemp + 6.0f;
     s.radOutTemp   = s.radiatorTemp - 9.0f;
     s.oilTemp      = get_fuel_level();             // reused sweep for the oil bar
-    s.pumpDuty     = (uint8_t)((millis() / 300) % 101);
+    s.pumpDuty     = (uint8_t)get_pump_duty();     // own sweep, phase-shifted off the temps
     s.shiftMode    = 0;
     s.warningFlags = 0;
     s.versionMain  = 104;

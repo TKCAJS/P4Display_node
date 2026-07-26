@@ -1,4 +1,6 @@
 #include "GaugeUpdater.h"
+#include <climits>
+#include <cmath>
 #include "screens/ui_Screen4.h"
 #include "screens/ui_Screen5.h"
 
@@ -25,6 +27,18 @@ static void updateLEDPair(uint16_t rpmValue, uint16_t threshold, lv_obj_t* led_l
         lv_led_off(led_right);
         *is_active = false;
     }
+}
+
+// Cooling-page repaint gate. `*shown` holds the whole °C / % currently on
+// screen; it only moves once the reading is a full unit away from it, so the
+// arcs and DSEG48 labels step one at a time while a value parked on a rounding
+// boundary (74.5) still can't flip 74/75 every tick. That matters because
+// repainting a full anti-aliased arc + big label is a PSRAM framebuffer burst
+// that visibly jitters the panel.
+static bool step_unit(float value, int* shown) {
+    if (*shown != INT_MIN && fabsf(value - (float)*shown) < 1.0f) return false;
+    *shown = (int)lroundf(value);
+    return true;
 }
 
 // LED flash state (12k RPM) - independent timer
@@ -78,49 +92,38 @@ void updateGauges() {
     // Update temperature gauge (radiator temp from sensor node Dallas DS18B20)
     // and the cooling-page engine/rad-out temp (NTC) and pump duty arcs.
     //
-    // All cooling-page updates are hysteresis-gated: sensor noise flipping a
-    // value across a rounding boundary (±0.1 °C, ±1 % duty) would otherwise
-    // repaint a full anti-aliased arc + DSEG48 label every tick, and those
-    // PSRAM framebuffer bursts visibly jitter the RGB panel.
+    // All cooling-page updates go through step_unit(), so nothing repaints
+    // until the value it renders has actually changed by a whole °C / %.
     if (now - last_temp_update >= TEMP_UPDATE_MS) {
-        static float shown_radiator = -1000.0f;
-        if (fabsf(can.radiatorTemp - shown_radiator) >= 0.7f) {
-            shown_radiator = can.radiatorTemp;
-            lv_bar_set_value(ui_gaugetemp, (int)can.radiatorTemp, LV_ANIM_OFF);
-            lv_bar_set_value(ui_Screen4_temp_gauge, (int)can.radiatorTemp, LV_ANIM_OFF);
-            int radiatorC = (int)(can.radiatorTemp + 0.5f);
-            lv_arc_set_value(ui_Screen4_radiator_arc, radiatorC);
-            char buf[8];
-            snprintf(buf, sizeof(buf), "%d", radiatorC);
+        char buf[8];
+
+        static int shown_radiator = INT_MIN;
+        if (step_unit(can.radiatorTemp, &shown_radiator)) {
+            lv_bar_set_value(ui_gaugetemp, shown_radiator, LV_ANIM_OFF);
+            lv_bar_set_value(ui_Screen4_temp_gauge, shown_radiator, LV_ANIM_OFF);
+            lv_arc_set_value(ui_Screen4_radiator_arc, shown_radiator);
+            snprintf(buf, sizeof(buf), "%d", shown_radiator);
             lv_label_set_text(ui_Screen4_radiator_label, buf);
         }
 
-        static float shown_engine = -1000.0f;
-        if (fabsf(can.engineTemp - shown_engine) >= 0.7f) {
-            shown_engine = can.engineTemp;
-            int engineC = (int)(can.engineTemp + 0.5f);
-            lv_arc_set_value(ui_Screen4_engine_arc, engineC);
-            char buf[8];
-            snprintf(buf, sizeof(buf), "%d", engineC);
+        static int shown_engine = INT_MIN;
+        if (step_unit(can.engineTemp, &shown_engine)) {
+            lv_arc_set_value(ui_Screen4_engine_arc, shown_engine);
+            snprintf(buf, sizeof(buf), "%d", shown_engine);
             lv_label_set_text(ui_Screen4_engine_label, buf);
         }
 
-        static float shown_radout = -1000.0f;
-        if (fabsf(can.radOutTemp - shown_radout) >= 0.7f) {
-            shown_radout = can.radOutTemp;
-            int radOutC = (int)(can.radOutTemp + 0.5f);
-            lv_arc_set_value(ui_Screen4_radout_arc, radOutC);
-            char buf[8];
-            snprintf(buf, sizeof(buf), "%d", radOutC);
+        static int shown_radout = INT_MIN;
+        if (step_unit(can.radOutTemp, &shown_radout)) {
+            lv_arc_set_value(ui_Screen4_radout_arc, shown_radout);
+            snprintf(buf, sizeof(buf), "%d", shown_radout);
             lv_label_set_text(ui_Screen4_radout_label, buf);
         }
 
         static int shown_pump_duty = INT_MIN;
-        if (abs((int)can.pumpDuty - shown_pump_duty) >= 2) {
-            shown_pump_duty = can.pumpDuty;
-            lv_arc_set_value(ui_Screen4_pump_arc, can.pumpDuty);
-            char buf[8];
-            snprintf(buf, sizeof(buf), "%d", can.pumpDuty);
+        if (step_unit((float)can.pumpDuty, &shown_pump_duty)) {
+            lv_arc_set_value(ui_Screen4_pump_arc, shown_pump_duty);
+            snprintf(buf, sizeof(buf), "%d", shown_pump_duty);
             lv_label_set_text(ui_Screen4_pump_label, buf);
         }
         last_temp_update = now;
