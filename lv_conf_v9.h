@@ -69,10 +69,18 @@
 
 #if LV_USE_STDLIB_MALLOC == LV_STDLIB_BUILTIN
     /** Size of memory available for `lv_malloc()` in bytes (>= 2kB) */
-    /* 64 KB: measured peak usage is 38.4 KB with all 5 screens created
-     * (LVMEM max_used, 2026-07-16); shrunk from 128 KB to leave internal RAM
-     * for the 32 KB display DMA buffer + WiFi in pit mode. */
-    #define LV_MEM_SIZE (64 * 1024U)           /**< [bytes] */
+    /* 1 MB, allocated from PSRAM (see LV_MEM_POOL_ALLOC below).
+     *
+     * Screen widgets themselves only peak at ~38.4 KB (LVMEM max_used,
+     * 2026-07-16, all 5 screens), which is why this used to be a 64 KB array
+     * in internal RAM. Vector graphics changed that: thorvg renders ARGB8888
+     * only, so for our RGB565 display lv_draw_sw_vector() allocates a
+     * full-layer ARGB8888 scratch buffer per draw (lv_draw_sw_vector.c:501) —
+     * up to ~375 KB for an 800x120 render stripe. Against the old 64 KB pool
+     * that allocation could only ever fail, and a failed lv_malloc lands on
+     * LV_ASSERT_HANDLER, which halts the LVGL task forever and takes the
+     * board out via the task watchdog. */
+    #define LV_MEM_SIZE (1024 * 1024U)         /**< [bytes] */
 
     /** Size of the memory expand for `lv_malloc()` in bytes */
     #define LV_MEM_POOL_EXPAND_SIZE 0
@@ -80,10 +88,10 @@
     /** Set an address for the memory pool instead of allocating it as a normal array. Can be in external SRAM too. */
     #define LV_MEM_ADR 0     /**< 0: unused*/
     /* Instead of an address give a memory allocator that will be called to get a memory pool for LVGL. E.g. my_malloc */
-    #if LV_MEM_ADR == 0
-        #undef LV_MEM_POOL_INCLUDE
-        #undef LV_MEM_POOL_ALLOC
-    #endif
+    /* Take the pool from PSRAM: a 1 MB array would not fit the P4's 320 KB of
+     * internal RAM, which is also needed for the display DMA buffer and WiFi. */
+    #define LV_MEM_POOL_INCLUDE <esp_heap_caps.h>
+    #define LV_MEM_POOL_ALLOC(size) heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)
 #endif  /*LV_USE_STDLIB_MALLOC == LV_STDLIB_BUILTIN*/
 
 /*====================
@@ -413,7 +421,10 @@
  *-----------*/
 
 /** Enable log module */
-#define LV_USE_LOG 0
+/* On: a silent LVGL is how an out-of-memory hang in the vector renderer went
+ * undiagnosed for a whole debugging session — WARN and above cost little and
+ * name the failure on the serial console. */
+#define LV_USE_LOG 1
 #if LV_USE_LOG
     /** Set value to one of the following levels of logging detail:
      *  - LV_LOG_LEVEL_TRACE    Log detailed information.
@@ -426,7 +437,7 @@
 
     /** - 1: Print log with 'printf';
      *  - 0: User needs to register a callback with `lv_log_register_print_cb()`. */
-    #define LV_LOG_PRINTF 0
+    #define LV_LOG_PRINTF 1
 
     /** Set callback to print logs.
      *  E.g `my_print`. The prototype should be `void my_print(lv_log_level_t level, const char * buf)`.
@@ -466,8 +477,12 @@
 #define LV_USE_ASSERT_OBJ           0   /**< Check the object's type and existence (e.g. not deleted). (Slow) */
 
 /** Add a custom handler when assert happens e.g. to restart MCU. */
-#define LV_ASSERT_HANDLER_INCLUDE <stdint.h>
-#define LV_ASSERT_HANDLER while(1);     /**< Halt by default */
+/* abort(), not the stock `while(1);`: halting spins the LVGL task on core 0
+ * forever, which surfaces only as an unexplained IDLE0 task-watchdog reboot
+ * with no hint of the real fault. abort() panics immediately with a proper
+ * backtrace, and LV_USE_LOG above prints what failed first. */
+#define LV_ASSERT_HANDLER_INCLUDE <stdlib.h>
+#define LV_ASSERT_HANDLER abort();
 
 /*-------------
  * Debug
@@ -589,11 +604,11 @@
 #define LV_ATTRIBUTE_EXTERN_DATA
 
 /** Use `float` as `lv_value_precise_t` */
-#define LV_USE_FLOAT            0
+#define LV_USE_FLOAT            1
 
 /** Enable matrix support
  *  - Requires `LV_USE_FLOAT = 1` */
-#define LV_USE_MATRIX           0
+#define LV_USE_MATRIX           1
 
 /** Include `lvgl_private.h` in `lvgl.h` to access internal data and functions by default */
 #ifndef LV_USE_PRIVATE_API
@@ -1004,11 +1019,11 @@
 
 /** Enable Vector Graphic APIs
  *  Requires `LV_USE_MATRIX = 1` */
-#define LV_USE_VECTOR_GRAPHIC  0
+#define LV_USE_VECTOR_GRAPHIC  1
 
 /** Enable ThorVG (vector graphics library) from the src/libs folder.
  *  Requires LV_USE_VECTOR_GRAPHIC */
-#define LV_USE_THORVG_INTERNAL 0
+#define LV_USE_THORVG_INTERNAL 1
 
 /** Enable ThorVG by assuming that its installed and linked to the project
  *  Requires LV_USE_VECTOR_GRAPHIC */

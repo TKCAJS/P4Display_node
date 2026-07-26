@@ -26,6 +26,11 @@ void lvgl_glue_unlock(void);
  * under the lock; returns the delay LVGL asks for until the next call (ms). */
 unsigned int lvgl_glue_handler(void);
 
+/* Smallest number of bytes ever left unused on the service task's stack.
+ * Worth watching when vector graphics are on screen — thorvg's stack demand
+ * is what forced LVGL_TASK_STACK up to 32 KB. 0 if no service task runs. */
+unsigned int lvgl_glue_stack_high_water(void);
+
 #ifdef __cplusplus
 }
 #endif

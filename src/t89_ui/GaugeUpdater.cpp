@@ -1,4 +1,5 @@
 #include "GaugeUpdater.h"
+#include "lvgl_glue.h"
 #include "screens/ui_Screen4.h"
 #include "screens/ui_Screen5.h"
 
@@ -64,8 +65,9 @@ void updateGauges() {
     static unsigned long lastHb = 0;
     if (now - lastHb >= 2000) {
         CanSnapshot hb = canGetSnapshot();
-        Serial.printf("[HB] valid=%d gear=%d rpm=%d temp=%.1f pump=%d stack=%d\n",
-                      hb.valid, hb.gear, hb.rpm, hb.radiatorTemp, hb.pumpDuty, hb.stackTarget);
+        Serial.printf("[HB] valid=%d gear=%d rpm=%d temp=%.1f pump=%d stack=%d lvglStackFree=%u\n",
+                      hb.valid, hb.gear, hb.rpm, hb.radiatorTemp, hb.pumpDuty, hb.stackTarget,
+                      lvgl_glue_stack_high_water());
         lastHb = now;
     }
 
@@ -137,6 +139,7 @@ void updateGauges() {
         uint16_t rpmgaugevalue = can.rpm;
 
         lv_slider_set_value(ui_gaugerpm, rpmgaugevalue, LV_ANIM_OFF);
+        ui_Screen6_set_rpm(rpmgaugevalue);
 
         static uint8_t rpm_color_state = 0; // 0=blue, 1=purple, 2=red
         uint8_t new_state = (rpmgaugevalue >= 12000) ? 2 : (rpmgaugevalue >= 10000) ? 1 : 0;

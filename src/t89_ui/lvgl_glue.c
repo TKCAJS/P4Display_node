@@ -36,7 +36,13 @@ static const char *TAG = "lvgl_glue9";
 #define LV_HOR              PANEL_NATIVE_H        /* logical landscape width  = 800 */
 #define LV_VER              PANEL_NATIVE_W        /* logical landscape height = 480 */
 #define LVGL_TICK_PERIOD_MS 2
-#define LVGL_TASK_STACK     8192
+/* 32 KB, not the 8 KB this was ported with: thorvg's rasterizer (vector
+ * graphics, LV_USE_VECTOR_GRAPHIC) puts very large frames on the stack of
+ * whichever task calls lv_timer_handler(). At 8 KB the first vector draw ran
+ * the stack pointer ~13 KB PAST the end of the stack — a "Stack protection
+ * fault" panic in task "lvgl" the instant a vector screen was shown. Watch
+ * lvgl_glue_stack_high_water() before trimming this back. */
+#define LVGL_TASK_STACK     32768
 #define LVGL_TASK_PRIO      2
 #define LVGL_TASK_CORE      0
 
@@ -53,6 +59,38 @@ static bool               s_started    = false;
 /* LVGL callbacks                                                        */
 /* ===================================================================== */
 
+/* Stall diagnostics. Both stages of the flush can block forever: the PPA rotate
+ * runs in PPA_TRANS_MODE_BLOCKING (semaphore, no timeout) and the DPI present
+ * gates internally. s_stall_watch_task runs on the other core and takes no LVGL
+ * lock, so it still reports when the LVGL task and loop() are both wedged. */
+#define FLUSH_PHASE_IDLE     0
+#define FLUSH_PHASE_ROTATE   1
+#define FLUSH_PHASE_PRESENT  2
+static volatile uint32_t s_flush_seq   = 0;
+static volatile int      s_flush_phase = FLUSH_PHASE_IDLE;
+static volatile int      s_flush_rect[4];
+
+static void stall_watch_task(void *arg)
+{
+    (void)arg;
+    uint32_t last_seq = 0;
+    int quiet_s = 0;
+    for (;;) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        uint32_t seq = s_flush_seq;
+        if (seq != last_seq) { last_seq = seq; quiet_s = 0; continue; }
+        /* No flush completed for a while. Idle UIs legitimately stop flushing,
+         * so only shout if we're parked mid-flush. */
+        if (++quiet_s >= 3 && s_flush_phase != FLUSH_PHASE_IDLE) {
+            ESP_LOGE(TAG, "FLUSH STALLED in %s, seq=%u, last rect %d,%d %dx%d",
+                     s_flush_phase == FLUSH_PHASE_ROTATE ? "PPA rotate" : "DPI present",
+                     (unsigned)seq, s_flush_rect[0], s_flush_rect[1],
+                     s_flush_rect[2], s_flush_rect[3]);
+            quiet_s = 0;
+        }
+    }
+}
+
 static void disp_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map)
 {
     /* RENDER_MODE_PARTIAL: LVGL hands us only the invalidated areas, un-rotated
@@ -63,10 +101,19 @@ static void disp_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px
      * whole 800x480 frame even for a one-widget change. */
     const int w = area->x2 - area->x1 + 1;
     const int h = area->y2 - area->y1 + 1;
+
+    s_flush_rect[0] = area->x1; s_flush_rect[1] = area->y1;
+    s_flush_rect[2] = w;        s_flush_rect[3] = h;
+
+    s_flush_phase = FLUSH_PHASE_ROTATE;
     board_p4_flush_region_rotated(area->x1, area->y1, w, h, (const uint16_t *)px_map);
     if (lv_display_flush_is_last(disp)) {
+        s_flush_phase = FLUSH_PHASE_PRESENT;
         board_p4_present();
     }
+    s_flush_phase = FLUSH_PHASE_IDLE;
+    s_flush_seq++;
+
     lv_display_flush_ready(disp);
 }
 
@@ -136,6 +183,12 @@ bool lvgl_glue_lock(unsigned int timeout_ms)
 void lvgl_glue_unlock(void)
 {
     if (s_lvgl_mutex) xSemaphoreGiveRecursive(s_lvgl_mutex);
+}
+
+unsigned int lvgl_glue_stack_high_water(void)
+{
+    if (!s_lvgl_task) return 0;
+    return (unsigned int)uxTaskGetStackHighWaterMark(s_lvgl_task);
 }
 
 unsigned int lvgl_glue_handler(void)
@@ -216,6 +269,11 @@ bool lvgl_glue_start(bool run_service_task)
         xTaskCreatePinnedToCore(lvgl_task, "lvgl", LVGL_TASK_STACK, NULL,
                                 LVGL_TASK_PRIO, &s_lvgl_task, LVGL_TASK_CORE);
     }
+
+    /* Deliberately on the OTHER core to the LVGL task, and it never takes the
+     * LVGL lock — so it survives a wedged render pipeline and can name it. */
+    xTaskCreatePinnedToCore(stall_watch_task, "lvgl_stall", 3072, NULL,
+                            LVGL_TASK_PRIO + 1, NULL, LVGL_TASK_CORE ? 0 : 1);
 
     /* 7. Backlight on. */
     board_p4_backlight(true);
