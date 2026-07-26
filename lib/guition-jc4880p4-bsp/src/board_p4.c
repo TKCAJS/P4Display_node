@@ -40,7 +40,6 @@
 #include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "freertos/semphr.h"
 
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
@@ -118,133 +117,6 @@ static int                       s_prev_dirty_y1 = 0;
 #define BOARD_P4_PPA_ROTATE  PPA_SRM_ROTATION_ANGLE_270
 #endif
 static ppa_client_handle_t       s_ppa_srm    = NULL;
-static SemaphoreHandle_t         s_ppa_done   = NULL;
-
-// LOCAL PATCH (P4Display_node): the PPA rotate used to run in
-// PPA_TRANS_MODE_BLOCKING, which waits on the transaction with no timeout. A
-// transaction that never completes therefore wedged the calling (LVGL) task
-// forever, and with it anything waiting on the LVGL lock — the whole dashboard
-// died silently, no watchdog, no reboot. Observed in the field: a rotate stalled
-// after ~9000 good transactions. Now the transaction is issued non-blocking and
-// waited on with a bound, so a stalled one costs a dropped frame instead.
-// 200 ms is far longer than a legitimate rotate (a 154x196 block is well under
-// a millisecond); anything approaching it means the transaction is stuck, not
-// merely slow.
-#define BOARD_P4_PPA_TIMEOUT_MS 200
-// >1 so that one stuck transaction doesn't instantly occupy the client's only
-// queue slot and fail every submit that follows. We still only ever have one
-// transaction outstanding at a time; the extra depth is purely slack for
-// recovery.
-#define BOARD_P4_PPA_QUEUE_DEPTH 4
-
-// Blocks at or below this many pixels are rotated by the CPU rather than the
-// PPA. Sized to cover the small, frequent, arbitrarily-placed updates that a
-// moving gauge needle produces (tens of thousands of pixels) while leaving
-// full-screen and stripe-sized redraws — which are large but rare — on the
-// hardware path where the PPA has always been reliable.
-#define BOARD_P4_SW_ROTATE_MAX_PX (64u * 1024u)
-
-static bool IRAM_ATTR ppa_trans_done_cb(ppa_client_handle_t client,
-                                        ppa_event_data_t *data, void *user_data)
-{
-    (void)client; (void)data; (void)user_data;
-    BaseType_t hp_task_woken = pdFALSE;
-    if (s_ppa_done) xSemaphoreGiveFromISR(s_ppa_done, &hp_task_woken);
-    return hp_task_woken == pdTRUE;
-}
-
-// Tear the SRM client down and stand a fresh one up. A transaction that never
-// completes keeps its queue slot forever, so without this one stall would fail
-// every later submit ("exceed maximum pending transactions") and the display
-// would stay frozen on a stale frame. Returns false if the client is still
-// busy — the caller simply retries on a later frame.
-static bool ppa_client_reset(void)
-{
-    if (s_ppa_srm) {
-        esp_err_t e = ppa_unregister_client(s_ppa_srm);
-        if (e != ESP_OK) {
-            // ESP_ERR_INVALID_STATE = transaction still unfinished. Leave the
-            // handle alone and try again next frame.
-            return false;
-        }
-        s_ppa_srm = NULL;
-    }
-
-    ppa_client_config_t cfg = {
-        .oper_type             = PPA_OPERATION_SRM,
-        .max_pending_trans_num = BOARD_P4_PPA_QUEUE_DEPTH,
-    };
-    if (ppa_register_client(&cfg, &s_ppa_srm) != ESP_OK) {
-        s_ppa_srm = NULL;
-        ESP_LOGE(TAG, "ppa client reset: re-register failed — rotation down");
-        return false;
-    }
-    ppa_event_callbacks_t cbs = { .on_trans_done = ppa_trans_done_cb };
-    ppa_client_register_event_callbacks(s_ppa_srm, &cbs);
-    ESP_LOGW(TAG, "ppa client reset after a stalled transaction");
-    return true;
-}
-
-// Rotate one logical block into the native back buffer with the CPU, matching
-// board_p4_flush_region_rotated()'s PPA mapping exactly — the same relation the
-// touch code inverts in lvgl_glue.c (logical_x = native_y,
-// logical_y = (native_w-1) - native_x for 270).
-//
-// The destination is written along contiguous rows; the strided access is the
-// source read, which stays cache-warm because these blocks are small by
-// construction (see BOARD_P4_SW_ROTATE_MAX_PX).
-static void sw_rotate_region(int lx, int lw, int lh, const uint16_t *src, int nx0)
-{
-    const int stride = BOARD_P4_LCD_H_RES;
-    uint16_t *fb = s_framebuffer;
-
-#if BOARD_P4_PPA_ROTATE == PPA_SRM_ROTATION_ANGLE_270
-    /* native_x = (H_RES-1) - logical_y ; native_y = logical_x */
-    for (int sx = 0; sx < lw; sx++) {
-        uint16_t *drow = fb + (size_t)(lx + sx) * stride + nx0;
-        for (int k = 0; k < lh; k++) {
-            drow[k] = src[(size_t)(lh - 1 - k) * lw + sx];
-        }
-    }
-#else   /* PPA_SRM_ROTATION_ANGLE_90 */
-    /* native_x = logical_y ; native_y = (V_RES-1) - logical_x */
-    for (int sx = 0; sx < lw; sx++) {
-        uint16_t *drow = fb + (size_t)((BOARD_P4_LCD_V_RES - 1 - lx) - sx) * stride + nx0;
-        for (int sy = 0; sy < lh; sy++) {
-            drow[sy] = src[(size_t)sy * lw + sx];
-        }
-    }
-#endif
-}
-
-// Run one SRM transaction and wait for it, bounded. Returns false if the PPA
-// did not report completion in time (caller should just skip the region).
-static bool ppa_srm_run_bounded(ppa_srm_oper_config_t *srm, const char *what)
-{
-    if (!s_ppa_done) return false;
-    if (!s_ppa_srm) { ppa_client_reset(); return false; }
-
-    // Clear any late completion from a previously timed-out transaction, so we
-    // can't mistake it for this one's.
-    xSemaphoreTake(s_ppa_done, 0);
-
-    srm->mode = PPA_TRANS_MODE_NON_BLOCKING;
-    esp_err_t e = ppa_do_scale_rotate_mirror(s_ppa_srm, srm);
-    if (e != ESP_OK) {
-        // Queue full from an earlier stall — rebuild the client rather than
-        // failing every frame from here on. Logged at most once per reset.
-        ppa_client_reset();
-        return false;
-    }
-
-    if (xSemaphoreTake(s_ppa_done, pdMS_TO_TICKS(BOARD_P4_PPA_TIMEOUT_MS)) != pdTRUE) {
-        ESP_LOGE(TAG, "ppa SRM (%s) timed out after %d ms — frame dropped",
-                 what, BOARD_P4_PPA_TIMEOUT_MS);
-        ppa_client_reset();
-        return false;
-    }
-    return true;
-}
 
 static i2c_master_bus_handle_t   s_i2c_bus    = NULL;
 static esp_lcd_panel_io_handle_t s_touch_io   = NULL;
@@ -382,13 +254,9 @@ esp_err_t board_p4_display_init(void)
 
     // --- 7b. PPA SRM client for hardware rotation (logical 800x480 -> native FB) ---
     {
-        s_ppa_done = xSemaphoreCreateBinary();
-        if (!s_ppa_done) {
-            ESP_LOGE(TAG, "ppa done-semaphore alloc failed — rotation unavailable");
-        }
         ppa_client_config_t ppa_cfg = {
             .oper_type         = PPA_OPERATION_SRM,
-            .max_pending_trans_num = BOARD_P4_PPA_QUEUE_DEPTH,
+            .max_pending_trans_num = 1,   // blocking transactions only
         };
         esp_err_t e = ppa_register_client(&ppa_cfg, &s_ppa_srm);
         if (e != ESP_OK) {
@@ -397,11 +265,6 @@ esp_err_t board_p4_display_init(void)
             // Non-fatal: board_p4_present_rotated() falls back to a NULL-client
             // no-op; the UI just won't show. Surfaced loudly for the human.
         } else {
-            ppa_event_callbacks_t cbs = { .on_trans_done = ppa_trans_done_cb };
-            e = ppa_client_register_event_callbacks(s_ppa_srm, &cbs);
-            if (e != ESP_OK) {
-                ESP_LOGE(TAG, "ppa callback register failed: %s", esp_err_to_name(e));
-            }
             ESP_LOGI(TAG, "  PPA SRM client registered (HW rotation, angle=%d)",
                      (int)BOARD_P4_PPA_ROTATE);
         }
@@ -579,8 +442,11 @@ void board_p4_present_rotated(const uint16_t *logical, int log_w, int log_h)
         .mirror_y       = false,
         .rgb_swap       = false,
         .byte_swap      = false,
+        .mode           = PPA_TRANS_MODE_BLOCKING,     // wait until rotation done
     };
-    if (!ppa_srm_run_bounded(&srm, "full frame")) {
+    esp_err_t e = ppa_do_scale_rotate_mirror(s_ppa_srm, &srm);
+    if (e != ESP_OK) {
+        ESP_LOGE(TAG, "ppa SRM failed: %s", esp_err_to_name(e));
         return;   // don't swap a stale/garbage back FB
     }
 
@@ -651,33 +517,25 @@ void board_p4_flush_region_rotated(int lx, int ly, int lw, int lh, const uint16_
         .mirror_y       = false,
         .rgb_swap       = false,
         .byte_swap      = false,
+        .mode           = PPA_TRANS_MODE_BLOCKING,
     };
-    // Small regions go through the CPU instead of the PPA. Not an optimisation
-    // — a correctness one. Driving the PPA with many small, arbitrarily offset
-    // blocks (as a swept gauge needle does) eventually wedges a transaction
-    // that never completes, and IDF cannot reset a client with unfinished
-    // transactions ("client still has unprocessed trans"), so rotation is dead
-    // until reboot. A transpose-copy this size costs ~1-2 ms and cannot stall.
-    const bool cpu_rotate = ((uint32_t)lw * (uint32_t)lh) <= BOARD_P4_SW_ROTATE_MAX_PX;
-
-    if (cpu_rotate) {
-        sw_rotate_region(lx, lw, lh, src, nx0);
-    } else if (!ppa_srm_run_bounded(&srm, "region")) {
+    esp_err_t e = ppa_do_scale_rotate_mirror(s_ppa_srm, &srm);
+    if (e != ESP_OK) {
+        ESP_LOGE(TAG, "ppa SRM (region %d,%d %dx%d -> %d,%d) failed: %s",
+                 lx, ly, lw, lh, nx0, ny0, esp_err_to_name(e));
         return;
     }
 
-    // Make rows [ny0, ny0+nh) coherent for whoever reads them next
-    // (board_p4_present()'s copy, and the DPI scan-out). The PPA writes them by
-    // DMA, so those need invalidating (M2C); the CPU path wrote them through
-    // the cache, so those need writing back (C2M). A full-stride band is
-    // inherently 64B-cache-line aligned (480 px * 2 B = 960 B = 15 lines/row),
-    // which both directions require.
+    // The PPA DMA'd into rows [ny0, ny0+nh). Invalidate (M2C) so later CPU
+    // reads of these rows (board_p4_present()'s coherency memcpy) see the PPA
+    // output instead of stale cache lines. A full-stride band is inherently
+    // 64B-cache-line aligned (480 px * 2 B = 960 B = 15 lines/row), as M2C
+    // requires.
     {
         const int    stride = BOARD_P4_LCD_H_RES;
         uint16_t    *band   = s_framebuffer + (size_t)ny0 * stride;
         const size_t bytes  = (size_t)nh * stride * sizeof(uint16_t);
-        esp_cache_msync(band, bytes, cpu_rotate ? ESP_CACHE_MSYNC_FLAG_DIR_C2M
-                                                : ESP_CACHE_MSYNC_FLAG_DIR_M2C);
+        esp_cache_msync(band, bytes, ESP_CACHE_MSYNC_FLAG_DIR_M2C);
     }
 
     // Grow the per-refresh dirty row band (same accumulator flush_region uses).

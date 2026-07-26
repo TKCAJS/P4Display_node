@@ -69,32 +69,10 @@
 
 #if LV_USE_STDLIB_MALLOC == LV_STDLIB_BUILTIN
     /** Size of memory available for `lv_malloc()` in bytes (>= 2kB) */
-    /* 512 KB, from internal SRAM where possible (see lvgl_pool.c).
-     *
-     * Screen widgets themselves only peak at ~38.4 KB (LVMEM max_used,
-     * 2026-07-16, all 5 screens), which is why this used to be a 64 KB array.
-     * Vector graphics changed that: thorvg renders ARGB8888 only, so for our
-     * RGB565 display lv_draw_sw_vector() allocates a full-layer ARGB8888
-     * scratch buffer per draw (lv_draw_sw_vector.c:501). Against the old 64 KB
-     * pool that allocation could only ever fail, and a failed lv_malloc lands
-     * on LV_ASSERT_HANDLER, halting the LVGL task forever — which surfaced
-     * only as a task-watchdog reboot.
-     *
-     * The scratch is bounded by the display draw buffer, since a render chunk
-     * can never exceed it: (draw_buf_bytes / 2 px) * 4 B = draw_buf_bytes * 2.
-     * At 40 rows (64,000 B) that is a 128 KB worst case. 256 KB looked enough
-     * by that arithmetic but wasn't in practice: the scratch is allocated and
-     * freed FRESH every vector draw, interleaved with the small path-data
-     * allocations vector graphics also does (a few dozen bytes each, every
-     * redraw) — repeated over ~300+ redraws (~3 min at the needle's actual
-     * redraw rate) that fragmented the pool until no single 128 KB chunk
-     * remained despite plenty of total free space, and lv_draw_buf_create()
-     * returned NULL. 512 KB buys a lot more redraws before the same
-     * fragmentation math catches up, but doesn't remove the cause — if it
-     * recurs, the real fix is giving the vector scratch a persistent buffer
-     * instead of alloc/free per frame (lv_draw_sw_vector.c). Resize this
-     * together with the draw buffer above. */
-    #define LV_MEM_SIZE (512 * 1024U)          /**< [bytes] */
+    /* 64 KB: measured peak usage is 38.4 KB with all 5 screens created
+     * (LVMEM max_used, 2026-07-16); shrunk from 128 KB to leave internal RAM
+     * for the 32 KB display DMA buffer + WiFi in pit mode. */
+    #define LV_MEM_SIZE (64 * 1024U)           /**< [bytes] */
 
     /** Size of the memory expand for `lv_malloc()` in bytes */
     #define LV_MEM_POOL_EXPAND_SIZE 0
@@ -102,11 +80,10 @@
     /** Set an address for the memory pool instead of allocating it as a normal array. Can be in external SRAM too. */
     #define LV_MEM_ADR 0     /**< 0: unused*/
     /* Instead of an address give a memory allocator that will be called to get a memory pool for LVGL. E.g. my_malloc */
-    /* Internal SRAM first, PSRAM only as a fallback. The per-frame ARGB8888
-     * vector scratch lives in here, and in PSRAM its clear/blend traffic is
-     * what caps the rev counter at ~15 FPS with both cores at 100%. */
-    #define LV_MEM_POOL_INCLUDE "lvgl_pool.h"
-    #define LV_MEM_POOL_ALLOC(size) t89_lvgl_pool_alloc(size)
+    #if LV_MEM_ADR == 0
+        #undef LV_MEM_POOL_INCLUDE
+        #undef LV_MEM_POOL_ALLOC
+    #endif
 #endif  /*LV_USE_STDLIB_MALLOC == LV_STDLIB_BUILTIN*/
 
 /*====================
@@ -133,13 +110,6 @@
  * - LV_OS_MQX
  * - LV_OS_SDL2
  * - LV_OS_CUSTOM */
-/* Back to LV_OS_NONE after measuring. Multi-threaded rendering (LV_OS_FREERTOS
- * + LV_DRAW_SW_DRAW_UNIT_CNT 2) was tried on the rev counter screen and gave
- * *no* FPS gain — 15 FPS before and after, with CPU pegged at 100%. Adding
- * cores does nothing when the cores are stalled on memory rather than
- * computing, and it cost 64KB of internal RAM in thread stacks (each draw unit
- * starts BOTH an LVGL render thread and a thorvg worker). That RAM is worth far
- * more spent on keeping LVGL's pool in internal SRAM — see lvgl_pool.c. */
 #define LV_USE_OS   LV_OS_NONE
 
 #if LV_USE_OS == LV_OS_CUSTOM
@@ -186,17 +156,8 @@
 
 /** Stack size of drawing thread.
  * NOTE: If FreeType or ThorVG is enabled, it is recommended to set it to 32KB or more.
- *
- * Unused while LV_USE_OS is LV_OS_NONE. Kept at 128 KB rather than the stock
- * 8 KB so that re-enabling threaded rendering does not instantly panic: on
- * ESP-IDF this value does NOT arrive as bytes. lv_thread_init() passes
- * usStackSize / sizeof(StackType_t) to xTaskCreate(), which is right for
- * vanilla FreeRTOS (words) but ESP-IDF's xTaskCreate takes BYTES — "Note that
- * this differs from vanilla FreeRTOS" (freertos/task.h). So the real stack ends
- * up a quarter of what is written here. 128 KB therefore buys 32 KB of actual
- * stack, which is what ThorVG needs — measured peaking near 22 KB, and at 8 KB
- * it overran by 13 KB and panicked. */
-#define LV_DRAW_THREAD_STACK_SIZE    (128 * 1024)       /**< [bytes / 4 here] */
+ */
+#define LV_DRAW_THREAD_STACK_SIZE    (8 * 1024)         /**< [bytes]*/
 
 /** Thread priority of the drawing task.
  *  Higher values mean higher priority.
@@ -233,15 +194,7 @@
 
     /** Set number of draw units.
      *  - > 1 requires operating system to be enabled in `LV_USE_OS`.
-     *  - > 1 means multiple threads will render the screen in parallel.
-     *  Only meaningful with LV_USE_OS, which is off — see the note there for
-     *  why parallel rendering was measured and abandoned. Beware if reviving
-     *  it: each unit costs TWO 32KB internal-RAM stacks, not one, because
-     *  lv_draw_sw_init() also passes this count to tvg_engine_init() and
-     *  thorvg's TaskScheduler starts that many workers of its own. At 2, the
-     *  four stacks fragmented internal RAM enough that the 32KB LVGL service
-     *  task could no longer be created (103KB free, no contiguous block) and
-     *  nothing rendered at all. */
+     *  - > 1 means multiple threads will render the screen in parallel. */
     #define LV_DRAW_SW_DRAW_UNIT_CNT    1
 
     /** Use Arm-2D to accelerate software (sw) rendering. */
@@ -460,10 +413,7 @@
  *-----------*/
 
 /** Enable log module */
-/* On: a silent LVGL is how an out-of-memory hang in the vector renderer went
- * undiagnosed for a whole debugging session — WARN and above cost little and
- * name the failure on the serial console. */
-#define LV_USE_LOG 1
+#define LV_USE_LOG 0
 #if LV_USE_LOG
     /** Set value to one of the following levels of logging detail:
      *  - LV_LOG_LEVEL_TRACE    Log detailed information.
@@ -472,16 +422,11 @@
      *  - LV_LOG_LEVEL_ERROR    Log only critical issues, when system may fail.
      *  - LV_LOG_LEVEL_USER     Log only custom log messages added by the user.
      *  - LV_LOG_LEVEL_NONE     Do not log anything. */
-    /* ERROR, not WARN: with LV_USE_OS on, lv_sysmon polls lv_os_get_idle_percent
-     * faster than it can produce a sample and warns ~3x/second, which is just
-     * noise on the console and skews any timing we measure through it. Errors —
-     * failed allocations, asserts — still get through, and those are the ones
-     * that cost us a debugging session by being silent. */
-    #define LV_LOG_LEVEL LV_LOG_LEVEL_ERROR
+    #define LV_LOG_LEVEL LV_LOG_LEVEL_WARN
 
     /** - 1: Print log with 'printf';
      *  - 0: User needs to register a callback with `lv_log_register_print_cb()`. */
-    #define LV_LOG_PRINTF 1
+    #define LV_LOG_PRINTF 0
 
     /** Set callback to print logs.
      *  E.g `my_print`. The prototype should be `void my_print(lv_log_level_t level, const char * buf)`.
@@ -521,12 +466,8 @@
 #define LV_USE_ASSERT_OBJ           0   /**< Check the object's type and existence (e.g. not deleted). (Slow) */
 
 /** Add a custom handler when assert happens e.g. to restart MCU. */
-/* abort(), not the stock `while(1);`: halting spins the LVGL task on core 0
- * forever, which surfaces only as an unexplained IDLE0 task-watchdog reboot
- * with no hint of the real fault. abort() panics immediately with a proper
- * backtrace, and LV_USE_LOG above prints what failed first. */
-#define LV_ASSERT_HANDLER_INCLUDE <stdlib.h>
-#define LV_ASSERT_HANDLER abort();
+#define LV_ASSERT_HANDLER_INCLUDE <stdint.h>
+#define LV_ASSERT_HANDLER while(1);     /**< Halt by default */
 
 /*-------------
  * Debug
@@ -648,11 +589,11 @@
 #define LV_ATTRIBUTE_EXTERN_DATA
 
 /** Use `float` as `lv_value_precise_t` */
-#define LV_USE_FLOAT            1
+#define LV_USE_FLOAT            0
 
 /** Enable matrix support
  *  - Requires `LV_USE_FLOAT = 1` */
-#define LV_USE_MATRIX           1
+#define LV_USE_MATRIX           0
 
 /** Include `lvgl_private.h` in `lvgl.h` to access internal data and functions by default */
 #ifndef LV_USE_PRIVATE_API
@@ -1063,11 +1004,11 @@
 
 /** Enable Vector Graphic APIs
  *  Requires `LV_USE_MATRIX = 1` */
-#define LV_USE_VECTOR_GRAPHIC  1
+#define LV_USE_VECTOR_GRAPHIC  0
 
 /** Enable ThorVG (vector graphics library) from the src/libs folder.
  *  Requires LV_USE_VECTOR_GRAPHIC */
-#define LV_USE_THORVG_INTERNAL 1
+#define LV_USE_THORVG_INTERNAL 0
 
 /** Enable ThorVG by assuming that its installed and linked to the project
  *  Requires LV_USE_VECTOR_GRAPHIC */

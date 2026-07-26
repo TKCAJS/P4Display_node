@@ -27,7 +27,6 @@ extern "C" {
 #include "screens/ui_Screen3.h"
 #include "screens/ui_Screen4.h"
 #include "screens/ui_Screen5.h"
-#include "screens/ui_Screen6.h"
 
 ///////////////////// VARIABLES ////////////////////
 
@@ -77,7 +76,6 @@ void ui_destroy(void);
 void ui_event_settingsbutton_to_screen3(lv_event_t * e);
 void ui_event_settingsbutton_to_screen4(lv_event_t * e);
 void ui_event_settingsbutton_to_screen5(lv_event_t * e);
-void ui_event_settingsbutton_to_screen6(lv_event_t * e);
 
 #ifdef __cplusplus
 } /*extern "C"*/

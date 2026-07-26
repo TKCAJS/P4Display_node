@@ -36,13 +36,7 @@ static const char *TAG = "lvgl_glue9";
 #define LV_HOR              PANEL_NATIVE_H        /* logical landscape width  = 800 */
 #define LV_VER              PANEL_NATIVE_W        /* logical landscape height = 480 */
 #define LVGL_TICK_PERIOD_MS 2
-/* 32 KB, not the 8 KB this was ported with: thorvg's rasterizer (vector
- * graphics, LV_USE_VECTOR_GRAPHIC) puts very large frames on the stack of
- * whichever task calls lv_timer_handler(). At 8 KB the first vector draw ran
- * the stack pointer ~13 KB PAST the end of the stack — a "Stack protection
- * fault" panic in task "lvgl" the instant a vector screen was shown. Watch
- * lvgl_glue_stack_high_water() before trimming this back. */
-#define LVGL_TASK_STACK     32768
+#define LVGL_TASK_STACK     8192
 #define LVGL_TASK_PRIO      2
 #define LVGL_TASK_CORE      0
 
@@ -59,38 +53,6 @@ static bool               s_started    = false;
 /* LVGL callbacks                                                        */
 /* ===================================================================== */
 
-/* Stall diagnostics. Both stages of the flush can block forever: the PPA rotate
- * runs in PPA_TRANS_MODE_BLOCKING (semaphore, no timeout) and the DPI present
- * gates internally. s_stall_watch_task runs on the other core and takes no LVGL
- * lock, so it still reports when the LVGL task and loop() are both wedged. */
-#define FLUSH_PHASE_IDLE     0
-#define FLUSH_PHASE_ROTATE   1
-#define FLUSH_PHASE_PRESENT  2
-static volatile uint32_t s_flush_seq   = 0;
-static volatile int      s_flush_phase = FLUSH_PHASE_IDLE;
-static volatile int      s_flush_rect[4];
-
-static void stall_watch_task(void *arg)
-{
-    (void)arg;
-    uint32_t last_seq = 0;
-    int quiet_s = 0;
-    for (;;) {
-        vTaskDelay(pdMS_TO_TICKS(1000));
-        uint32_t seq = s_flush_seq;
-        if (seq != last_seq) { last_seq = seq; quiet_s = 0; continue; }
-        /* No flush completed for a while. Idle UIs legitimately stop flushing,
-         * so only shout if we're parked mid-flush. */
-        if (++quiet_s >= 3 && s_flush_phase != FLUSH_PHASE_IDLE) {
-            ESP_LOGE(TAG, "FLUSH STALLED in %s, seq=%u, last rect %d,%d %dx%d",
-                     s_flush_phase == FLUSH_PHASE_ROTATE ? "PPA rotate" : "DPI present",
-                     (unsigned)seq, s_flush_rect[0], s_flush_rect[1],
-                     s_flush_rect[2], s_flush_rect[3]);
-            quiet_s = 0;
-        }
-    }
-}
-
 static void disp_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map)
 {
     /* RENDER_MODE_PARTIAL: LVGL hands us only the invalidated areas, un-rotated
@@ -101,19 +63,10 @@ static void disp_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px
      * whole 800x480 frame even for a one-widget change. */
     const int w = area->x2 - area->x1 + 1;
     const int h = area->y2 - area->y1 + 1;
-
-    s_flush_rect[0] = area->x1; s_flush_rect[1] = area->y1;
-    s_flush_rect[2] = w;        s_flush_rect[3] = h;
-
-    s_flush_phase = FLUSH_PHASE_ROTATE;
     board_p4_flush_region_rotated(area->x1, area->y1, w, h, (const uint16_t *)px_map);
     if (lv_display_flush_is_last(disp)) {
-        s_flush_phase = FLUSH_PHASE_PRESENT;
         board_p4_present();
     }
-    s_flush_phase = FLUSH_PHASE_IDLE;
-    s_flush_seq++;
-
     lv_display_flush_ready(disp);
 }
 
@@ -185,12 +138,6 @@ void lvgl_glue_unlock(void)
     if (s_lvgl_mutex) xSemaphoreGiveRecursive(s_lvgl_mutex);
 }
 
-unsigned int lvgl_glue_stack_high_water(void)
-{
-    if (!s_lvgl_task) return 0;
-    return (unsigned int)uxTaskGetStackHighWaterMark(s_lvgl_task);
-}
-
 unsigned int lvgl_glue_handler(void)
 {
     unsigned int delay_ms = 5;
@@ -210,32 +157,16 @@ bool lvgl_glue_start(bool run_service_task)
         ESP_LOGW(TAG, "board_p4_touch_init failed — UI shows but touch is dead");
     }
 
-    /* 1. LVGL core. With LV_USE_OS == LV_OS_NONE, lv_draw_sw_init() calls
-     * tvg_engine_init(TVG_ENGINE_SW, 0), so thorvg rasterizes synchronously on
-     * whichever task calls lv_timer_handler() — this one — and spawns no worker
-     * threads of its own. (If LV_USE_OS is ever turned back on, those workers
-     * are std::thread/pthread and take ESP-IDF's ~3KB default stack, which
-     * thorvg overruns instantly; esp_pthread_set_cfg() before lv_init() is the
-     * fix.) */
+    /* 1. LVGL core. */
     lv_init();
 
-    /* 2. ONE partial draw buffer, a 40-row logical stripe (800*40*2B = 62.5KB),
-     *    in INTERNAL RAM: LVGL's software renderer is memory-bandwidth-bound,
-     *    and internal SRAM is far faster to render into than PSRAM. The PPA
-     *    reads it via DMA (internal RAM is DMA-capable). A second buffer buys
-     *    nothing here — the flush rotates synchronously, so render and flush
-     *    never overlap.
-     *
-     *    Down from 120 rows, and this size is now load-bearing: it caps the
-     *    ARGB8888 scratch lv_draw_sw_vector() allocates per vector draw, since
-     *    a render chunk can never exceed the draw buffer —
-     *    (buf_bytes / 2 px) * 4 B = buf_bytes * 2, so 125KB here. LV_MEM_SIZE
-     *    must stay comfortably above that; resize the two together.
-     *
-     *    Only byte capacity matters for chunking, not row count: a
-     *    needle-sized dirty region still lands in a single chunk, while a
-     *    full-screen redraw just takes more passes, and those are rare. */
-    const size_t buf_bytes = (size_t)LV_HOR * 40 * sizeof(uint16_t);
+    /* 2. ONE partial draw buffer, a 120-row logical stripe (800*120*2B =
+     *    187.5KB), preferably in INTERNAL RAM: LVGL's software renderer is
+     *    memory-bandwidth-bound, and internal SRAM is far faster to render
+     *    into than PSRAM. The PPA reads it via DMA (internal RAM is
+     *    DMA-capable). A second buffer buys nothing here — the flush
+     *    PPA-rotates in BLOCKING mode, so render and flush never overlap. */
+    const size_t buf_bytes = (size_t)LV_HOR * 120 * sizeof(uint16_t);
     s_buf1 = (uint16_t *)heap_caps_malloc(buf_bytes,
                                           MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA);
     if (!s_buf1) {
@@ -282,24 +213,9 @@ bool lvgl_glue_start(bool run_service_task)
         return false;
     }
     if (run_service_task) {
-        /* Checked: internal RAM is tight once the render threads are up, and a
-         * silent failure here leaves nothing driving lv_timer_handler() — a
-         * frozen display with no clue why. */
-        if (xTaskCreatePinnedToCore(lvgl_task, "lvgl", LVGL_TASK_STACK, NULL,
-                                    LVGL_TASK_PRIO, &s_lvgl_task, LVGL_TASK_CORE) != pdPASS) {
-            s_lvgl_task = NULL;
-            ESP_LOGE(TAG, "LVGL service task create FAILED (%d B stack, %u B internal free) "
-                          "— nothing will render",
-                     LVGL_TASK_STACK,
-                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
-            return false;
-        }
+        xTaskCreatePinnedToCore(lvgl_task, "lvgl", LVGL_TASK_STACK, NULL,
+                                LVGL_TASK_PRIO, &s_lvgl_task, LVGL_TASK_CORE);
     }
-
-    /* Deliberately on the OTHER core to the LVGL task, and it never takes the
-     * LVGL lock — so it survives a wedged render pipeline and can name it. */
-    xTaskCreatePinnedToCore(stall_watch_task, "lvgl_stall", 3072, NULL,
-                            LVGL_TASK_PRIO + 1, NULL, LVGL_TASK_CORE ? 0 : 1);
 
     /* 7. Backlight on. */
     board_p4_backlight(true);
@@ -307,14 +223,5 @@ bool lvgl_glue_start(bool run_service_task)
     s_started = true;
     ESP_LOGI(TAG, "lvgl_glue_start OK (LVGL %d.%d, logical %dx%d landscape, PPA HW rotate)",
              LVGL_VERSION_MAJOR, LVGL_VERSION_MINOR, LV_HOR, LV_VER);
-    /* Internal RAM is the scarce pool here: draw buffer + the LVGL service task
-     * + LV_DRAW_SW_DRAW_UNIT_CNT render threads all come out of it, and pit mode
-     * still needs room for WiFi. Report the margin rather than assuming it. */
-    /* printf, not ESP_LOGI/W: this build runs with CORE_DEBUG_LEVEL at Error,
-     * so anything below ESP_LOGE is compiled out. */
-    printf("[LVGL] internal RAM free: %u B (largest block %u B), draw units: %d\n",
-           (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
-           (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
-           (int)LV_DRAW_SW_DRAW_UNIT_CNT);
     return true;
 }

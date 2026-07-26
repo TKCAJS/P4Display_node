@@ -1,8 +1,4 @@
 #include "GaugeUpdater.h"
-#include "lvgl_glue.h"
-#include <esp_heap_caps.h>
-#include <climits>
-#include <cmath>
 #include "screens/ui_Screen4.h"
 #include "screens/ui_Screen5.h"
 
@@ -29,18 +25,6 @@ static void updateLEDPair(uint16_t rpmValue, uint16_t threshold, lv_obj_t* led_l
         lv_led_off(led_right);
         *is_active = false;
     }
-}
-
-// Cooling-page repaint gate. `*shown` holds the whole °C / % currently rendered;
-// it only moves once the reading is a full unit away from it. That gives 1-unit
-// increments on screen while still ignoring boundary chatter — a reading sitting
-// at 74.5 can't flip the arc and DSEG48 label between 74 and 75 every tick.
-// (The old ±0.7 °C / ±2 % float thresholds gated on how far the *reading* had
-// moved, so the pump arc could only step 2 % at a time.)
-static bool step_unit(float value, int* shown) {
-    if (*shown != INT_MIN && fabsf(value - (float)*shown) < 1.0f) return false;
-    *shown = (int)lroundf(value);
-    return true;
 }
 
 // LED flash state (12k RPM) - independent timer
@@ -80,11 +64,8 @@ void updateGauges() {
     static unsigned long lastHb = 0;
     if (now - lastHb >= 2000) {
         CanSnapshot hb = canGetSnapshot();
-        Serial.printf("[HB] valid=%d gear=%d rpm=%d temp=%.1f pump=%d stack=%d "
-                      "lvglStackFree=%u internalFree=%u\n",
-                      hb.valid, hb.gear, hb.rpm, hb.radiatorTemp, hb.pumpDuty, hb.stackTarget,
-                      lvgl_glue_stack_high_water(),
-                      (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+        Serial.printf("[HB] valid=%d gear=%d rpm=%d temp=%.1f pump=%d stack=%d\n",
+                      hb.valid, hb.gear, hb.rpm, hb.radiatorTemp, hb.pumpDuty, hb.stackTarget);
         lastHb = now;
     }
 
@@ -97,40 +78,49 @@ void updateGauges() {
     // Update temperature gauge (radiator temp from sensor node Dallas DS18B20)
     // and the cooling-page engine/rad-out temp (NTC) and pump duty arcs.
     //
-    // All cooling-page updates go through step_unit(): a value that hasn't moved
-    // a whole °C / % doesn't repaint, because a full anti-aliased arc + DSEG48
-    // label every tick means PSRAM framebuffer bursts that visibly jitter the
-    // RGB panel.
+    // All cooling-page updates are hysteresis-gated: sensor noise flipping a
+    // value across a rounding boundary (±0.1 °C, ±1 % duty) would otherwise
+    // repaint a full anti-aliased arc + DSEG48 label every tick, and those
+    // PSRAM framebuffer bursts visibly jitter the RGB panel.
     if (now - last_temp_update >= TEMP_UPDATE_MS) {
-        char buf[8];
-
-        static int shown_radiator = INT_MIN;
-        if (step_unit(can.radiatorTemp, &shown_radiator)) {
-            lv_bar_set_value(ui_gaugetemp, shown_radiator, LV_ANIM_OFF);
-            lv_bar_set_value(ui_Screen4_temp_gauge, shown_radiator, LV_ANIM_OFF);
-            lv_arc_set_value(ui_Screen4_radiator_arc, shown_radiator);
-            snprintf(buf, sizeof(buf), "%d", shown_radiator);
+        static float shown_radiator = -1000.0f;
+        if (fabsf(can.radiatorTemp - shown_radiator) >= 0.7f) {
+            shown_radiator = can.radiatorTemp;
+            lv_bar_set_value(ui_gaugetemp, (int)can.radiatorTemp, LV_ANIM_OFF);
+            lv_bar_set_value(ui_Screen4_temp_gauge, (int)can.radiatorTemp, LV_ANIM_OFF);
+            int radiatorC = (int)(can.radiatorTemp + 0.5f);
+            lv_arc_set_value(ui_Screen4_radiator_arc, radiatorC);
+            char buf[8];
+            snprintf(buf, sizeof(buf), "%d", radiatorC);
             lv_label_set_text(ui_Screen4_radiator_label, buf);
         }
 
-        static int shown_engine = INT_MIN;
-        if (step_unit(can.engineTemp, &shown_engine)) {
-            lv_arc_set_value(ui_Screen4_engine_arc, shown_engine);
-            snprintf(buf, sizeof(buf), "%d", shown_engine);
+        static float shown_engine = -1000.0f;
+        if (fabsf(can.engineTemp - shown_engine) >= 0.7f) {
+            shown_engine = can.engineTemp;
+            int engineC = (int)(can.engineTemp + 0.5f);
+            lv_arc_set_value(ui_Screen4_engine_arc, engineC);
+            char buf[8];
+            snprintf(buf, sizeof(buf), "%d", engineC);
             lv_label_set_text(ui_Screen4_engine_label, buf);
         }
 
-        static int shown_radout = INT_MIN;
-        if (step_unit(can.radOutTemp, &shown_radout)) {
-            lv_arc_set_value(ui_Screen4_radout_arc, shown_radout);
-            snprintf(buf, sizeof(buf), "%d", shown_radout);
+        static float shown_radout = -1000.0f;
+        if (fabsf(can.radOutTemp - shown_radout) >= 0.7f) {
+            shown_radout = can.radOutTemp;
+            int radOutC = (int)(can.radOutTemp + 0.5f);
+            lv_arc_set_value(ui_Screen4_radout_arc, radOutC);
+            char buf[8];
+            snprintf(buf, sizeof(buf), "%d", radOutC);
             lv_label_set_text(ui_Screen4_radout_label, buf);
         }
 
         static int shown_pump_duty = INT_MIN;
-        if (step_unit((float)can.pumpDuty, &shown_pump_duty)) {
-            lv_arc_set_value(ui_Screen4_pump_arc, shown_pump_duty);
-            snprintf(buf, sizeof(buf), "%d", shown_pump_duty);
+        if (abs((int)can.pumpDuty - shown_pump_duty) >= 2) {
+            shown_pump_duty = can.pumpDuty;
+            lv_arc_set_value(ui_Screen4_pump_arc, can.pumpDuty);
+            char buf[8];
+            snprintf(buf, sizeof(buf), "%d", can.pumpDuty);
             lv_label_set_text(ui_Screen4_pump_label, buf);
         }
         last_temp_update = now;
@@ -147,7 +137,6 @@ void updateGauges() {
         uint16_t rpmgaugevalue = can.rpm;
 
         lv_slider_set_value(ui_gaugerpm, rpmgaugevalue, LV_ANIM_OFF);
-        ui_Screen6_set_rpm(rpmgaugevalue);
 
         static uint8_t rpm_color_state = 0; // 0=blue, 1=purple, 2=red
         uint8_t new_state = (rpmgaugevalue >= 12000) ? 2 : (rpmgaugevalue >= 10000) ? 1 : 0;
