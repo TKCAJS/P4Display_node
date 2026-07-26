@@ -8,32 +8,35 @@
 static const float RPM_IDLE = 2000.0f;
 static const float RPM_PEAK = 14000.0f;
 
-// Simulate temperature sensor (0-100°C range)
-float get_temperature() {
-  static float temp = 50.0;
-  static int direction = 1;
-
-  // Mechanical rise and fall (0.05°C per call = ~1.5°C/sec at 30fps)
-  temp += (direction * 3);
-
-  // Bounce at limits
-  if (temp >= 80) direction = -1;
-  if (temp <= 20) direction = 1;
-
-  return temp;
+// Triangle sweep between lo and hi at `per_s` units/second, derived purely from
+// millis() so the value depends on elapsed time, not on how often it is read.
+//
+// (The earlier simulators stepped a static by 3 units *per call*. canGetSnapshot()
+// is called several times per loop() — heartbeat, gauges, and each SDLogger
+// getter — so the sweep advanced hundreds of degrees a second and whatever the
+// cooling page sampled at its 500 ms tick was effectively random: the arcs and
+// labels jumped instead of ramping.)
+// `phase_s` shifts a sweep along its own cycle so signals sharing a range don't
+// all move in lockstep.
+static float sweep(float lo, float hi, float per_s, float phase_s) {
+  const float span   = hi - lo;
+  const float period = 2.0f * span / per_s;   // seconds for one up+down cycle
+  const float t      = fmodf((float)millis() / 1000.0f + phase_s, period) * per_s;
+  return (t <= span) ? lo + t : hi - (t - span);
 }
 
-// Simulate fuel level sensor (0-100% range)
+// All three sweep at 2 units/s, i.e. one whole degree or percent per 500 ms
+// cooling-page update — the finest step the display can show.
+float get_temperature() {
+  return sweep(20.0f, 80.0f, 2.0f, 0.0f);
+}
+
 float get_fuel_level() {
-  static float fuel = 75.0;
+  return sweep(0.0f, 100.0f, 2.0f, 0.0f);
+}
 
-  // Slow mechanical decrease (0.02% per call = ~0.6%/sec at 30fps)
-  fuel -= 3;
-
-  // Reset when empty
-  if (fuel < 0) fuel = 100;
-
-  return fuel;
+float get_pump_duty() {
+  return sweep(0.0f, 100.0f, 2.0f, 37.0f);
 }
 
 // Simulate RPM sensor with realistic engine behavior.
