@@ -21,17 +21,19 @@
 #include "SDLogger.h"
 #include "PitServer.h"
 
-// Hold anywhere on the screen for 3 s to toggle pit mode
-#define PIT_LONGPRESS_MS 3000
-
+// Mirror the pit server's real state into the UI: the top-layer banner, and the
+// SETTINGS switch that requested the change in the first place. Both are driven
+// from pitServerIsActive() rather than from the switch, because a toggle is only
+// queued by the UI and applied here in the protocol task a moment later.
 static void pitOverlaySync(lv_obj_t** label) {
     bool on = pitServerIsActive();
+    ui_Screen5_set_pit_state(on);
     if (on && !*label) {
         *label = lv_label_create(lv_layer_top());
         lv_label_set_text(*label,
             "PIT MODE  -  logging paused\n"
             "WiFi: " PIT_AP_SSID "  pass: " PIT_AP_PASS "\n"
-            "http://" PIT_AP_IP_STR "/   (hold 3s to exit)");
+            "http://" PIT_AP_IP_STR "/   (turn off in SETTINGS)");
         lv_obj_set_style_bg_color(*label, lv_color_black(), 0);
         lv_obj_set_style_bg_opa(*label, LV_OPA_80, 0);
         lv_obj_set_style_text_color(*label, lv_color_white(), 0);
@@ -41,31 +43,6 @@ static void pitOverlaySync(lv_obj_t** label) {
     } else if (!on && *label) {
         lv_obj_delete(*label);
         *label = nullptr;
-    }
-}
-
-// Long-press detection — call under the LVGL lock
-static void pitLongPressCheck(void) {
-    static unsigned long pressStart = 0;
-    static bool longPressFired = false;
-
-    bool pressed = false;
-    lv_indev_t* indev = lv_indev_get_next(NULL);
-    if (indev && lv_indev_get_type(indev) == LV_INDEV_TYPE_POINTER &&
-        lv_indev_get_state(indev) == LV_INDEV_STATE_PRESSED) {
-        pressed = true;
-    }
-
-    unsigned long now = millis();
-    if (pressed) {
-        if (pressStart == 0) pressStart = now;
-        else if (!longPressFired && now - pressStart >= PIT_LONGPRESS_MS) {
-            pitServerRequestToggle();
-            longPressFired = true;
-        }
-    } else {
-        pressStart = 0;
-        longPressFired = false;
     }
 }
 
@@ -90,11 +67,11 @@ void setup(void) {
 
     sdLoggerBegin();
     canBegin();
-    Serial.println("[T89-P4] up — long-press 3s (or send 'p' on serial) for pit mode");
+    Serial.println("[T89-P4] up — PIT MODE switch on the SETTINGS screen (or send 'p' on serial)");
 }
 
 void loop(void) {
-    // Serial 'p' mirrors the 3 s long-press — lets pit mode be exercised from
+    // Serial 'p' mirrors the SETTINGS switch — lets pit mode be exercised from
     // the host without touching the screen.
     while (Serial.available()) {
         if (Serial.read() == 'p') pitServerRequestToggle();
@@ -107,7 +84,6 @@ void loop(void) {
     static lv_obj_t* pitLabel = nullptr;
     if (lvgl_glue_lock(0)) {
         updateGauges();
-        pitLongPressCheck();
         pitOverlaySync(&pitLabel);
         lvgl_glue_unlock();
     }

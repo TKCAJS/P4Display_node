@@ -16,6 +16,11 @@ extern lv_obj_t * ui_Screen5_menubutton;
 extern lv_obj_t * ui_Screen5_versionMain;
 extern lv_obj_t * ui_Screen5_versionRear;
 extern lv_obj_t * ui_Screen5_versionDisplay;
+extern lv_obj_t * ui_Screen5_pit_switch;
+
+// Drive the PIT MODE switch from the server's real state. Call under the LVGL
+// lock; safe before the screen exists.
+void ui_Screen5_set_pit_state(bool active);
 
 #ifdef __cplusplus
 } /*extern "C"*/

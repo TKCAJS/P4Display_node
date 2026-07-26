@@ -7,16 +7,20 @@
 #include "ui.h"
 #include <math.h>
 
-#define GAUGE_SIZE      380
+#define GAUGE_SIZE      470                 // 480 screen - 5 px top and bottom
 #define GAUGE_R         (GAUGE_SIZE / 2)
-#define GAUGE_ROT_DEG   135                 // sweep starts at 7:30...
-#define GAUGE_SWEEP_DEG 270                 // ...and ends at 4:30, clockwise
+// Rotated so the 12 sits at 12 o'clock: 270 deg (straight up) minus the
+// 231.4 deg the sweep has covered by 12000 RPM leaves 38.6, rounded to 39 —
+// within half a degree, about 1.5 px out at this radius. Same 270 deg sweep and
+// tick spacing as before, so the uncovered quadrant now faces right.
+#define GAUGE_ROT_DEG   39
+#define GAUGE_SWEEP_DEG 270
 #define RPM_MAX         14000
 #define RPM_AMBER       10000
 #define RPM_REDLINE     12000
 
-#define NEEDLE_LEN      146                 // pivot -> tip, stops just inside the ticks
-#define NEEDLE_TAIL     34                  // counterweight behind the pivot
+#define NEEDLE_LEN      180                 // pivot -> tip, stops just inside the ticks
+#define NEEDLE_TAIL     42                  // counterweight behind the pivot
 #define NEEDLE_WIDTH    6
 
 #define DEG2RAD         0.017453292f
@@ -141,14 +145,12 @@ void ui_Screen6_screen_init(void)
     ui_Screen6_dashboardbutton = nav.dashboard_btn;
     ui_Screen6_menubutton = nav.menu_btn;
 
-    // Title
-    ui_screen_title_create(ui_Screen6, "TEST");
-
     // Gauge container: zero padding, so every child's coordinates are dial-local
-    // and the centre is exactly (GAUGE_R, GAUGE_R). Nudged down to clear the title.
+    // and the centre is exactly (GAUGE_R, GAUGE_R). Centred on the 480 px height,
+    // which leaves the 5 px top and bottom gap a bezel can later sit in.
     lv_obj_t * cont = lv_obj_create(ui_Screen6);
     lv_obj_set_size(cont, GAUGE_SIZE, GAUGE_SIZE);
-    lv_obj_align(cont, LV_ALIGN_CENTER, 0, 25);
+    lv_obj_align(cont, LV_ALIGN_CENTER, 0, 0);
     lv_obj_remove_flag(cont, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_pad_all(cont, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(cont, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -201,13 +203,16 @@ void ui_Screen6_screen_init(void)
 
     lv_obj_set_style_line_color(scale, lv_color_hex(0xE8E8F0), LV_PART_INDICATOR | LV_STATE_DEFAULT);
     lv_obj_set_style_line_width(scale, 5, LV_PART_INDICATOR | LV_STATE_DEFAULT);
-    lv_obj_set_style_length(scale, 22, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_length(scale, 26, LV_PART_INDICATOR | LV_STATE_DEFAULT);
     lv_obj_set_style_text_color(scale, lv_color_hex(0xD8DCE6), LV_PART_INDICATOR | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(scale, &lv_font_montserrat_20, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(scale, &lv_font_montserrat_28, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    // Labels sit LV_SCALE_DEFAULT_LABEL_GAP (15 px) in from the tick ends, which
+    // the 28 px font closes up; pad_radial adds to that gap.
+    lv_obj_set_style_pad_radial(scale, 16, LV_PART_INDICATOR | LV_STATE_DEFAULT);
 
     lv_obj_set_style_line_color(scale, lv_color_hex(0x6C7486), LV_PART_ITEMS | LV_STATE_DEFAULT);
     lv_obj_set_style_line_width(scale, 3, LV_PART_ITEMS | LV_STATE_DEFAULT);
-    lv_obj_set_style_length(scale, 12, LV_PART_ITEMS | LV_STATE_DEFAULT);
+    lv_obj_set_style_length(scale, 14, LV_PART_ITEMS | LV_STATE_DEFAULT);
 
     lv_scale_section_t * redline = lv_scale_add_section(scale);
     lv_scale_section_set_range(redline, RPM_REDLINE, RPM_MAX);
@@ -218,7 +223,7 @@ void ui_Screen6_screen_init(void)
     // Shift light, above the pivot. Dark until the redline.
     gauge_shiftled = lv_obj_create(cont);
     lv_obj_set_size(gauge_shiftled, 26, 26);
-    lv_obj_align(gauge_shiftled, LV_ALIGN_CENTER, 0, -78);
+    lv_obj_align(gauge_shiftled, LV_ALIGN_CENTER, 0, -96);
     lv_obj_remove_flag(gauge_shiftled, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_radius(gauge_shiftled, LV_RADIUS_CIRCLE, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_color(gauge_shiftled, lv_color_hex(0x2A1015), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -235,13 +240,13 @@ void ui_Screen6_screen_init(void)
     lv_obj_set_style_text_color(gauge_readout, lv_color_hex(0x30E0FF), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_font(gauge_readout, &ui_font_DSEG48, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_label_set_text(gauge_readout, "0");
-    lv_obj_align(gauge_readout, LV_ALIGN_CENTER, 0, 68);
+    lv_obj_align(gauge_readout, LV_ALIGN_CENTER, 0, 85);
 
     lv_obj_t * unit = lv_label_create(cont);
     lv_label_set_text(unit, "RPM  x1000");
     lv_obj_set_style_text_color(unit, lv_color_hex(0x7A8290), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_font(unit, &lv_font_montserrat_20, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_align(unit, LV_ALIGN_CENTER, 0, 118);
+    lv_obj_align(unit, LV_ALIGN_CENTER, 0, 140);
 
     // Needle, then the hub over its pivot. Creation order is z-order, so the hub
     // hides the tail's inner end and the readout stays legible under a sweep.
@@ -251,7 +256,7 @@ void ui_Screen6_screen_init(void)
     lv_obj_set_style_line_rounded(gauge_needle, true, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     lv_obj_t * hub = lv_obj_create(cont);
-    lv_obj_set_size(hub, 44, 44);
+    lv_obj_set_size(hub, 52, 52);
     lv_obj_align(hub, LV_ALIGN_CENTER, 0, 0);
     lv_obj_remove_flag(hub, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_radius(hub, LV_RADIUS_CIRCLE, LV_PART_MAIN | LV_STATE_DEFAULT);

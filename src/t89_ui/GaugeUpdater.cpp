@@ -78,8 +78,15 @@ void updateGauges() {
     static unsigned long lastHb = 0;
     if (now - lastHb >= 2000) {
         CanSnapshot hb = canGetSnapshot();
-        Serial.printf("[HB] valid=%d gear=%d rpm=%d temp=%.1f pump=%d stack=%d\n",
-                      hb.valid, hb.gear, hb.rpm, hb.radiatorTemp, hb.pumpDuty, hb.stackTarget);
+        // lv_mem_monitor reports LVGL's own pool (LV_MEM_SIZE), not the system
+        // heap. updateGauges() already runs under the LVGL lock, which it needs.
+        lv_mem_monitor_t lvmem;
+        lv_mem_monitor(&lvmem);
+        Serial.printf("[HB] valid=%d gear=%d rpm=%d temp=%.1f pump=%d stack=%d "
+                      "lvFree=%u lvBiggest=%u lvUsed=%d%% lvFrag=%d%%\n",
+                      hb.valid, hb.gear, hb.rpm, hb.radiatorTemp, hb.pumpDuty, hb.stackTarget,
+                      (unsigned)lvmem.free_size, (unsigned)lvmem.free_biggest_size,
+                      (int)lvmem.used_pct, (int)lvmem.frag_pct);
         lastHb = now;
     }
 
