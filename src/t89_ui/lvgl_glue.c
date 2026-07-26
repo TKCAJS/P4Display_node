@@ -210,16 +210,32 @@ bool lvgl_glue_start(bool run_service_task)
         ESP_LOGW(TAG, "board_p4_touch_init failed — UI shows but touch is dead");
     }
 
-    /* 1. LVGL core. */
+    /* 1. LVGL core. With LV_USE_OS == LV_OS_NONE, lv_draw_sw_init() calls
+     * tvg_engine_init(TVG_ENGINE_SW, 0), so thorvg rasterizes synchronously on
+     * whichever task calls lv_timer_handler() — this one — and spawns no worker
+     * threads of its own. (If LV_USE_OS is ever turned back on, those workers
+     * are std::thread/pthread and take ESP-IDF's ~3KB default stack, which
+     * thorvg overruns instantly; esp_pthread_set_cfg() before lv_init() is the
+     * fix.) */
     lv_init();
 
-    /* 2. ONE partial draw buffer, a 120-row logical stripe (800*120*2B =
-     *    187.5KB), preferably in INTERNAL RAM: LVGL's software renderer is
-     *    memory-bandwidth-bound, and internal SRAM is far faster to render
-     *    into than PSRAM. The PPA reads it via DMA (internal RAM is
-     *    DMA-capable). A second buffer buys nothing here — the flush
-     *    PPA-rotates in BLOCKING mode, so render and flush never overlap. */
-    const size_t buf_bytes = (size_t)LV_HOR * 120 * sizeof(uint16_t);
+    /* 2. ONE partial draw buffer, a 40-row logical stripe (800*40*2B = 62.5KB),
+     *    in INTERNAL RAM: LVGL's software renderer is memory-bandwidth-bound,
+     *    and internal SRAM is far faster to render into than PSRAM. The PPA
+     *    reads it via DMA (internal RAM is DMA-capable). A second buffer buys
+     *    nothing here — the flush rotates synchronously, so render and flush
+     *    never overlap.
+     *
+     *    Down from 120 rows, and this size is now load-bearing: it caps the
+     *    ARGB8888 scratch lv_draw_sw_vector() allocates per vector draw, since
+     *    a render chunk can never exceed the draw buffer —
+     *    (buf_bytes / 2 px) * 4 B = buf_bytes * 2, so 125KB here. LV_MEM_SIZE
+     *    must stay comfortably above that; resize the two together.
+     *
+     *    Only byte capacity matters for chunking, not row count: a
+     *    needle-sized dirty region still lands in a single chunk, while a
+     *    full-screen redraw just takes more passes, and those are rare. */
+    const size_t buf_bytes = (size_t)LV_HOR * 40 * sizeof(uint16_t);
     s_buf1 = (uint16_t *)heap_caps_malloc(buf_bytes,
                                           MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA);
     if (!s_buf1) {
@@ -266,8 +282,18 @@ bool lvgl_glue_start(bool run_service_task)
         return false;
     }
     if (run_service_task) {
-        xTaskCreatePinnedToCore(lvgl_task, "lvgl", LVGL_TASK_STACK, NULL,
-                                LVGL_TASK_PRIO, &s_lvgl_task, LVGL_TASK_CORE);
+        /* Checked: internal RAM is tight once the render threads are up, and a
+         * silent failure here leaves nothing driving lv_timer_handler() — a
+         * frozen display with no clue why. */
+        if (xTaskCreatePinnedToCore(lvgl_task, "lvgl", LVGL_TASK_STACK, NULL,
+                                    LVGL_TASK_PRIO, &s_lvgl_task, LVGL_TASK_CORE) != pdPASS) {
+            s_lvgl_task = NULL;
+            ESP_LOGE(TAG, "LVGL service task create FAILED (%d B stack, %u B internal free) "
+                          "— nothing will render",
+                     LVGL_TASK_STACK,
+                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+            return false;
+        }
     }
 
     /* Deliberately on the OTHER core to the LVGL task, and it never takes the
@@ -281,5 +307,14 @@ bool lvgl_glue_start(bool run_service_task)
     s_started = true;
     ESP_LOGI(TAG, "lvgl_glue_start OK (LVGL %d.%d, logical %dx%d landscape, PPA HW rotate)",
              LVGL_VERSION_MAJOR, LVGL_VERSION_MINOR, LV_HOR, LV_VER);
+    /* Internal RAM is the scarce pool here: draw buffer + the LVGL service task
+     * + LV_DRAW_SW_DRAW_UNIT_CNT render threads all come out of it, and pit mode
+     * still needs room for WiFi. Report the margin rather than assuming it. */
+    /* printf, not ESP_LOGI/W: this build runs with CORE_DEBUG_LEVEL at Error,
+     * so anything below ESP_LOGE is compiled out. */
+    printf("[LVGL] internal RAM free: %u B (largest block %u B), draw units: %d\n",
+           (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+           (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+           (int)LV_DRAW_SW_DRAW_UNIT_CNT);
     return true;
 }

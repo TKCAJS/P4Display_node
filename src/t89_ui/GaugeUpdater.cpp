@@ -1,5 +1,6 @@
 #include "GaugeUpdater.h"
 #include "lvgl_glue.h"
+#include <esp_heap_caps.h>
 #include "screens/ui_Screen4.h"
 #include "screens/ui_Screen5.h"
 
@@ -65,9 +66,11 @@ void updateGauges() {
     static unsigned long lastHb = 0;
     if (now - lastHb >= 2000) {
         CanSnapshot hb = canGetSnapshot();
-        Serial.printf("[HB] valid=%d gear=%d rpm=%d temp=%.1f pump=%d stack=%d lvglStackFree=%u\n",
+        Serial.printf("[HB] valid=%d gear=%d rpm=%d temp=%.1f pump=%d stack=%d "
+                      "lvglStackFree=%u internalFree=%u\n",
                       hb.valid, hb.gear, hb.rpm, hb.radiatorTemp, hb.pumpDuty, hb.stackTarget,
-                      lvgl_glue_stack_high_water());
+                      lvgl_glue_stack_high_water(),
+                      (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
         lastHb = now;
     }
 
