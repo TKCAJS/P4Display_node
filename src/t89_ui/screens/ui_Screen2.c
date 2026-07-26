@@ -7,8 +7,23 @@ lv_obj_t * ui_dashboardbutton = NULL;
 lv_obj_t * ui_Screen2_clutch_btn = NULL;
 lv_obj_t * ui_Screen2_cooling_btn = NULL;
 lv_obj_t * ui_Screen2_settings_btn = NULL;
+lv_obj_t * ui_Screen2_test_btn = NULL;
 //lv_obj_t * ui_Screen2_BackBtn;
 // lv_obj_t * ui_Screen2_Label;
+
+// Every menu entry is the same ui_settingsbutton template with a centred caption
+// and a screen-change callback — only the x offset, caption and target differ.
+static lv_obj_t * ui_menu_entry_create(int32_t x, const char * text, lv_event_cb_t on_click)
+{
+    lv_obj_t * btn = ui_settingsbutton_create(ui_Screen2);
+    lv_obj_set_pos(btn, x, 0);
+    lv_obj_add_event_cb(btn, on_click, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t * label = lv_label_create(btn);
+    lv_label_set_text(label, text);
+    lv_obj_center(label);
+    return btn;
+}
 
 void ui_Screen2_screen_init(void)
 {
@@ -35,29 +50,13 @@ void ui_Screen2_screen_init(void)
     // Title
     ui_screen_title_create(ui_Screen2, "MENU");
 
-    // Clutch settings button
-    ui_Screen2_clutch_btn = ui_settingsbutton_create(ui_Screen2);
-    lv_obj_set_pos(ui_Screen2_clutch_btn, -200,0);
-    lv_obj_add_event_cb(ui_Screen2_clutch_btn, ui_event_settingsbutton_to_screen3, LV_EVENT_CLICKED, NULL);
-    lv_obj_t * label_clutch = lv_label_create(ui_Screen2_clutch_btn);
-    lv_label_set_text(label_clutch, "CLUTCH");
-    lv_obj_center(label_clutch);
-
-    // Cooling settings button
-    ui_Screen2_cooling_btn = ui_settingsbutton_create(ui_Screen2);
-    lv_obj_set_pos(ui_Screen2_cooling_btn, 0, 0);
-    lv_obj_add_event_cb(ui_Screen2_cooling_btn, ui_event_settingsbutton_to_screen4, LV_EVENT_CLICKED, NULL);
-    lv_obj_t * label_cooling = lv_label_create(ui_Screen2_cooling_btn);
-    lv_label_set_text(label_cooling, "COOLING");
-    lv_obj_center(label_cooling);
-
-    // Settings button
-    ui_Screen2_settings_btn = ui_settingsbutton_create(ui_Screen2);
-    lv_obj_set_pos(ui_Screen2_settings_btn, 200, 0);
-    lv_obj_add_event_cb(ui_Screen2_settings_btn, ui_event_settingsbutton_to_screen5, LV_EVENT_CLICKED, NULL);
-    lv_obj_t * label_settings = lv_label_create(ui_Screen2_settings_btn);
-    lv_label_set_text(label_settings, "SETTINGS");
-    lv_obj_center(label_settings);
+    // Menu buttons. ui_settingsbutton_create() aligns to LV_ALIGN_CENTER, so the
+    // x here is an offset from screen centre: four 160-wide buttons at 180 pitch
+    // span 700 of the 800 px, leaving a 50 px margin each side.
+    ui_Screen2_clutch_btn = ui_menu_entry_create(-270, "CLUTCH", ui_event_settingsbutton_to_screen3);
+    ui_Screen2_cooling_btn = ui_menu_entry_create(-90, "COOLING", ui_event_settingsbutton_to_screen4);
+    ui_Screen2_settings_btn = ui_menu_entry_create(90, "SETTINGS", ui_event_settingsbutton_to_screen5);
+    ui_Screen2_test_btn = ui_menu_entry_create(270, "TEST", ui_event_settingsbutton_to_screen6);
 }
 
 void ui_Screen2_screen_destroy(void)
@@ -68,4 +67,5 @@ void ui_Screen2_screen_destroy(void)
     ui_Screen2_clutch_btn = NULL;
     ui_Screen2_cooling_btn = NULL;
     ui_Screen2_settings_btn = NULL;
+    ui_Screen2_test_btn = NULL;
 }
