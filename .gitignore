@@ -1,2 +1,9 @@
 .pio/
 .vscode/
+
+# pioarduino writes a stub src/idf_component.yml ("dependencies: {idf: '>=5.1'}")
+# on any Arduino build that finds no idf_component.yml in the framework package.
+# It's inert here — the framework's own copy takes priority — and the platform
+# won't clean it up because it only deletes a generated yml when a .orig sits
+# beside it. If a real managed-component manifest is ever needed, force-add it.
+src/idf_component.yml*
