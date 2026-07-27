@@ -69,10 +69,19 @@
 
 #if LV_USE_STDLIB_MALLOC == LV_STDLIB_BUILTIN
     /** Size of memory available for `lv_malloc()` in bytes (>= 2kB) */
-    /* 64 KB: measured peak usage is 38.4 KB with all 5 screens created
-     * (LVMEM max_used, 2026-07-16); shrunk from 128 KB to leave internal RAM
-     * for the 32 KB display DMA buffer + WiFi in pit mode. */
-    #define LV_MEM_SIZE (64 * 1024U)           /**< [bytes] */
+    /* Back to 128 KB (2026-07-27). It was cut to 64 KB on 2026-07-16, when peak
+     * usage was 38.4 KB with 5 screens, to leave internal RAM for the 32 KB
+     * display DMA buffer + WiFi in pit mode. Eight screens now sit at ~48 KB
+     * (lvUsed 76%, ~15 KB free), and that is not enough headroom for the SW
+     * renderer: an anti-aliased circle mask costs (radius+1)*16 + radius*6+6
+     * bytes, so Screen8's 800 px dial needs ~8.8 KB in one allocation and each
+     * arc needs two of them. When that lv_malloc returns NULL, LV_ASSERT_MALLOC
+     * runs LV_ASSERT_HANDLER ("while(1);") inside the LVGL task, which starves
+     * IDLE0 until the task watchdog reboots the node.
+     *
+     * Watch pit mode: this takes back the 64 KB of internal RAM that was freed
+     * for the WiFi stack. */
+    #define LV_MEM_SIZE (128 * 1024U)          /**< [bytes] */
 
     /** Size of the memory expand for `lv_malloc()` in bytes */
     #define LV_MEM_POOL_EXPAND_SIZE 0

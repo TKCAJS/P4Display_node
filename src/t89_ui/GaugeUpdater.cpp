@@ -148,6 +148,8 @@ void updateGauges() {
 
         lv_slider_set_value(ui_gaugerpm, rpmgaugevalue, LV_ANIM_OFF);
         ui_Screen6_set_rpm(rpmgaugevalue);
+        ui_Screen7_set_rpm(rpmgaugevalue);
+        ui_Screen8_set_rpm(rpmgaugevalue);
 
         static uint8_t rpm_color_state = 0; // 0=blue, 1=purple, 2=red
         uint8_t new_state = (rpmgaugevalue >= 12000) ? 2 : (rpmgaugevalue >= 10000) ? 1 : 0;

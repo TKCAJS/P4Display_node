@@ -15,9 +15,11 @@
 // tick spacing as before, so the uncovered quadrant now faces right.
 #define GAUGE_ROT_DEG   39
 #define GAUGE_SWEEP_DEG 270
-#define RPM_MAX         14000
-#define RPM_AMBER       10000
-#define RPM_REDLINE     12000
+
+// Scale thresholds live in ui.h so the bar tacho on Screen7 reads the same.
+#define RPM_MAX         RPM_GAUGE_MAX
+#define RPM_AMBER       RPM_GAUGE_AMBER
+#define RPM_REDLINE     RPM_GAUGE_REDLINE
 
 #define NEEDLE_LEN      180                 // pivot -> tip, stops just inside the ticks
 #define NEEDLE_TAIL     42                  // counterweight behind the pivot

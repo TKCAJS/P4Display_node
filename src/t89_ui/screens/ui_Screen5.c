@@ -30,11 +30,14 @@ static lv_obj_t * pit_confirm_box = NULL;
 // Deliberately hand-built rather than lv_msgbox.
 //
 // lv_msgbox's modal backdrop and card need LVGL to render them through a layer,
-// and layer buffers come from the 64 KB LVGL pool via lv_draw_buf_create(). With
-// ~24 KB free the allocation fails, and LVGL's response to that is
+// and layer buffers come from the LVGL pool via lv_draw_buf_create() — one
+// LV_DRAW_LAYER_SIMPLE_BUF_SIZE (48 KB) block. That failed outright when the
+// pool was 64 KB with ~24 KB free, and LVGL's response to a failure is
 // "Allocating layer buffer failed. Try later" — it retries forever, so
 // draw_buf_flush() spins waiting for a draw task that can never complete and the
-// task watchdog reboots the node. Everything below is fully opaque with no
+// task watchdog reboots the node. The pool is 128 KB again as of 2026-07-27, but
+// a 48 KB contiguous block is still not something to bet a reboot on, so this
+// stays hand-built. Everything below is fully opaque with no
 // shadow or transform, so it is drawn straight into the frame buffer and never
 // asks for a layer.
 static void pit_dialog_dismiss(void)
@@ -169,16 +172,17 @@ void ui_Screen5_screen_init(void)
     lv_obj_set_align(ui_Screen5_slider_d.slider, LV_ALIGN_CENTER);
     lv_obj_set_x(ui_Screen5_slider_d.value_label, 225);
 
-    // PIT MODE switch — bottom-left, clear of the sliders above
+    // PIT MODE switch — bottom-centre, clear of the sliders above, with its
+    // label centred on the same axis
     lv_obj_t * pit_label = lv_label_create(ui_Screen5);
     lv_label_set_text(pit_label, "PIT MODE (WiFi)");
     lv_obj_set_style_text_color(pit_label, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_font(pit_label, &lv_font_montserrat_20, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_align(pit_label, LV_ALIGN_BOTTOM_LEFT, 20, -106);
+    lv_obj_align(pit_label, LV_ALIGN_BOTTOM_MID, 0, -66);
 
     ui_Screen5_pit_switch = lv_switch_create(ui_Screen5);
     lv_obj_set_size(ui_Screen5_pit_switch, 80, 40);
-    lv_obj_align(ui_Screen5_pit_switch, LV_ALIGN_BOTTOM_LEFT, 20, -60);
+    lv_obj_align(ui_Screen5_pit_switch, LV_ALIGN_BOTTOM_MID, 0, -20);
     lv_obj_add_event_cb(ui_Screen5_pit_switch, pit_switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
     ui_Screen5_set_pit_state(pitServerIsActive());
 

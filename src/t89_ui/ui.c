@@ -43,6 +43,8 @@ void ui_init(void)
     ui_Screen4_screen_init();
     ui_Screen5_screen_init();
     ui_Screen6_screen_init();
+    ui_Screen7_screen_init();
+    ui_Screen8_screen_init();
     ui____initial_actions0 = lv_obj_create(NULL);
 
     lv_disp_load_scr(ui_Screen1);
@@ -56,6 +58,8 @@ void ui_destroy(void)
     ui_Screen4_screen_destroy();
     ui_Screen5_screen_destroy();
     ui_Screen6_screen_destroy();
+    ui_Screen7_screen_destroy();
+    ui_Screen8_screen_destroy();
 }
 
 // Event callbacks
@@ -87,4 +91,14 @@ void ui_event_settingsbutton_to_screen5(lv_event_t * e)
 void ui_event_settingsbutton_to_screen6(lv_event_t * e)
 {
     _ui_screen_change(&ui_Screen6, LV_SCREEN_LOAD_ANIM_NONE, 0, 0, &ui_Screen6_screen_init);
+}
+
+void ui_event_settingsbutton_to_screen7(lv_event_t * e)
+{
+    _ui_screen_change(&ui_Screen7, LV_SCREEN_LOAD_ANIM_NONE, 0, 0, &ui_Screen7_screen_init);
+}
+
+void ui_event_settingsbutton_to_screen8(lv_event_t * e)
+{
+    _ui_screen_change(&ui_Screen8, LV_SCREEN_LOAD_ANIM_NONE, 0, 0, &ui_Screen8_screen_init);
 }

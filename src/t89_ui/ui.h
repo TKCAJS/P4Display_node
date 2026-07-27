@@ -14,6 +14,12 @@ extern "C" {
 
 #define DISPLAY_NODE_VERSION "1.3.0"
 
+// Rev-counter scale, shared by every tacho view (Screen6 dial, Screen7 bar) so
+// a redline change lands on all of them at once.
+#define RPM_GAUGE_MAX       14000
+#define RPM_GAUGE_AMBER     10000
+#define RPM_GAUGE_REDLINE   12000
+
 #include "ui_helpers.h"
 #include "components/ui_comp.h"
 #include "components/ui_comp_hook.h"
@@ -28,6 +34,8 @@ extern "C" {
 #include "screens/ui_Screen4.h"
 #include "screens/ui_Screen5.h"
 #include "screens/ui_Screen6.h"
+#include "screens/ui_Screen7.h"
+#include "screens/ui_Screen8.h"
 
 ///////////////////// VARIABLES ////////////////////
 
@@ -78,6 +86,8 @@ void ui_event_settingsbutton_to_screen3(lv_event_t * e);
 void ui_event_settingsbutton_to_screen4(lv_event_t * e);
 void ui_event_settingsbutton_to_screen5(lv_event_t * e);
 void ui_event_settingsbutton_to_screen6(lv_event_t * e);
+void ui_event_settingsbutton_to_screen7(lv_event_t * e);
+void ui_event_settingsbutton_to_screen8(lv_event_t * e);
 
 #ifdef __cplusplus
 } /*extern "C"*/
