@@ -3,8 +3,7 @@
 // The dial is a full 800x800 circle whose centre is pushed down to the bottom
 // edge of the 800x480 panel, so exactly its top half is on screen and the sweep
 // runs corner to corner. Same widget budget as Screen6 — lv_scale for the dial,
-// an lv_line for the needle — plus a peak-hold pip that rides the tick ring and
-// bleeds back down, and a shift bar in the black above the arc.
+// an lv_line for the needle — plus a shift bar in the black above the arc.
 //
 // Nothing here rotates or fades an object: transforms and opacity on a parent
 // make LVGL render through a draw layer, and there is no room in the 64 KB pool
@@ -23,16 +22,8 @@
 #define DIAL_ROT_DEG    180                 // 0 RPM at 9 o'clock ...
 #define DIAL_SWEEP_DEG  180                 // ... sweeping clockwise to 3 o'clock
 
-#define NEEDLE_LEN      300                 // pivot -> tip, stops inside the labels
-#define NEEDLE_WIDTH    7
-
-#define PEAK_R_INNER    372                 // pip sits on the major-tick ring
-#define PEAK_R_OUTER    398
-#define PEAK_WIDTH      6
-// 30 ms per call (RPM_UPDATE_MS): hold the peak for ~1.2 s, then bleed it back
-// down at ~2000 RPM/s until it meets the needle.
-#define PEAK_HOLD_TICKS 40
-#define PEAK_DECAY_RPM  60
+#define NEEDLE_LEN      310                 // pivot -> tip, stops inside the labels
+#define NEEDLE_WIDTH    8
 
 #define DEG2RAD         0.017453292f
 
@@ -41,22 +32,17 @@ lv_obj_t * ui_Screen8_dashboardbutton = NULL;
 lv_obj_t * ui_Screen8_menubutton = NULL;
 
 static lv_obj_t * dial_needle   = NULL;
-static lv_obj_t * dial_peak     = NULL;
 static lv_obj_t * dial_readout  = NULL;
 static lv_obj_t * dial_shiftbar = NULL;
 
-// lv_line keeps the pointer it is given rather than copying, so these must
+// lv_line keeps the pointer it is given rather than copying, so this must
 // outlive every set_points() call.
 static lv_point_precise_t needle_points[2];
-static lv_point_precise_t peak_points[2];
 
 // Dial state, all reset by ui_Screen8_screen_init().
 static float   needle_rpm   = 0.0f;         // smoothed, trails the raw value
 static int32_t needle_a10   = INT32_MIN;    // last drawn angle, tenths of a degree
 static int32_t needle_zone  = -1;           // 0 = silver, 1 = amber, 2 = red
-static float   peak_rpm     = 0.0f;
-static int32_t peak_deg     = INT32_MIN;    // last drawn pip angle, whole degrees
-static int32_t peak_hold    = 0;
 static int32_t shown_rpm    = INT32_MIN;
 static bool    shift_lit    = false;
 
@@ -75,32 +61,26 @@ static lv_color_t zone_color(int32_t zone)
            : lv_color_hex(0xE8E8F0);
 }
 
-// Both the needle and the peak pip are radial lines, and both are re-based on
-// their own bounding box before being placed — see the long note in
-// ui_Screen6.c: anchoring a line to the dial instead invalidates the whole
-// 800x800 circle on every move.
-static void radial_line_set(lv_obj_t * line, lv_point_precise_t * pts,
-                            float rpm, int32_t r_from, int32_t r_to)
+// Point the needle at `rpm`, re-basing it on its own bounding box before
+// placing it — see the long note in ui_Screen6.c: anchoring the line to the dial
+// instead invalidates the whole 800x800 circle on every move.
+static void needle_point_at(float rpm)
 {
     const float a  = (DIAL_ROT_DEG + DIAL_SWEEP_DEG * rpm / RPM_GAUGE_MAX) * DEG2RAD;
-    const float ux = cosf(a);
-    const float uy = sinf(a);
 
-    const int32_t x0 = DIAL_R + (int32_t)lroundf(ux * r_from);
-    const int32_t y0 = DIAL_R + (int32_t)lroundf(uy * r_from);
-    const int32_t x1 = DIAL_R + (int32_t)lroundf(ux * r_to);
-    const int32_t y1 = DIAL_R + (int32_t)lroundf(uy * r_to);
+    const int32_t tip_x = DIAL_R + (int32_t)lroundf(cosf(a) * NEEDLE_LEN);
+    const int32_t tip_y = DIAL_R + (int32_t)lroundf(sinf(a) * NEEDLE_LEN);
 
-    const int32_t min_x = LV_MIN(x0, x1);
-    const int32_t min_y = LV_MIN(y0, y1);
+    const int32_t min_x = LV_MIN(tip_x, DIAL_R);
+    const int32_t min_y = LV_MIN(tip_y, DIAL_R);
 
-    pts[0].x = x0 - min_x;
-    pts[0].y = y0 - min_y;
-    pts[1].x = x1 - min_x;
-    pts[1].y = y1 - min_y;
+    needle_points[0].x = DIAL_R - min_x;
+    needle_points[0].y = DIAL_R - min_y;
+    needle_points[1].x = tip_x - min_x;
+    needle_points[1].y = tip_y - min_y;
 
-    lv_line_set_points(line, pts, 2);
-    lv_obj_set_pos(line, min_x, min_y);
+    lv_line_set_points(dial_needle, needle_points, 2);
+    lv_obj_set_pos(dial_needle, min_x, min_y);
 }
 
 void ui_Screen8_set_rpm(uint16_t rpm)
@@ -121,29 +101,7 @@ void ui_Screen8_set_rpm(uint16_t rpm)
     const int32_t a10 = (int32_t)lroundf(needle_rpm * (DIAL_SWEEP_DEG * 10.0f) / RPM_GAUGE_MAX);
     if(a10 != needle_a10) {
         needle_a10 = a10;
-        radial_line_set(dial_needle, needle_points, needle_rpm, 0, NEEDLE_LEN);
-    }
-
-    // Peak hold: jumps straight to any new high, waits, then bleeds back down
-    // until the needle catches it.
-    if(needle_rpm >= peak_rpm) {
-        peak_rpm  = needle_rpm;
-        peak_hold = PEAK_HOLD_TICKS;
-    }
-    else if(peak_hold > 0) {
-        peak_hold--;
-    }
-    else {
-        peak_rpm -= PEAK_DECAY_RPM;
-        if(peak_rpm < needle_rpm) peak_rpm = needle_rpm;
-    }
-
-    // A whole degree is ~7 px of pip movement at this radius; finer than that
-    // is not worth a redraw.
-    const int32_t p_deg = (int32_t)lroundf(peak_rpm * (float)DIAL_SWEEP_DEG / RPM_GAUGE_MAX);
-    if(p_deg != peak_deg) {
-        peak_deg = p_deg;
-        radial_line_set(dial_peak, peak_points, peak_rpm, PEAK_R_INNER, PEAK_R_OUTER);
+        needle_point_at(needle_rpm);
     }
 
     const int32_t zone = (rpm >= RPM_GAUGE_REDLINE) ? 2 : (rpm >= RPM_GAUGE_AMBER) ? 1 : 0;
@@ -187,14 +145,11 @@ void ui_Screen8_screen_init(void)
     ui_Screen8_dashboardbutton = nav.dashboard_btn;
     ui_Screen8_menubutton = nav.menu_btn;
 
-    // No ui_screen_title_create() here, same as Screen6: the dial owns the
-    // whole panel, so the name goes in the strip of black next to the nav
-    // button instead.
-    lv_obj_t * name = lv_label_create(ui_Screen8);
-    lv_label_set_text(name, "RPM 3");
-    lv_obj_set_style_text_color(name, lv_color_hex(0x7A8290), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(name, &lv_font_montserrat_20, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_align(name, LV_ALIGN_TOP_LEFT, 96, 14);
+    ui_rpm_carousel_attach(ui_Screen8);
+
+    // No ui_screen_title_create() here: the dial owns the whole panel, and
+    // ui_rpm_carousel_attach() has already put the view's name and the position
+    // dots in the strip of black next to the nav button.
 
     // Shift bar, in the black above the arc and clear of both nav buttons.
     // Dark until the redline.
@@ -305,14 +260,8 @@ void ui_Screen8_screen_init(void)
     lv_obj_set_style_text_font(unit, &lv_font_montserrat_20, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_align(unit, LV_ALIGN_CENTER, 0, -85);
 
-    // Peak pip, then the needle, then the hub over the pivot: creation order is
-    // z-order, so the needle passes over the readout and the hub covers the
-    // needle's root.
-    dial_peak = lv_line_create(cont);
-    lv_obj_set_style_line_width(dial_peak, PEAK_WIDTH, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_line_color(dial_peak, lv_color_hex(0xFF6060), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_line_rounded(dial_peak, true, LV_PART_MAIN | LV_STATE_DEFAULT);
-
+    // Needle, then the hub over the pivot: creation order is z-order, so the
+    // needle passes over the readout and the hub covers the needle's root.
     dial_needle = lv_line_create(cont);
     lv_obj_set_style_line_width(dial_needle, NEEDLE_WIDTH, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_line_color(dial_needle, lv_color_hex(0xE8E8F0), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -333,13 +282,9 @@ void ui_Screen8_screen_init(void)
     needle_rpm  = 0.0f;
     needle_a10  = INT32_MIN;
     needle_zone = -1;
-    peak_rpm    = 0.0f;
-    peak_deg    = INT32_MIN;
-    peak_hold   = 0;
     shown_rpm   = INT32_MIN;
     shift_lit   = false;
-    radial_line_set(dial_needle, needle_points, 0.0f, 0, NEEDLE_LEN);
-    radial_line_set(dial_peak, peak_points, 0.0f, PEAK_R_INNER, PEAK_R_OUTER);
+    needle_point_at(0.0f);
 }
 
 void ui_Screen8_screen_destroy(void)
@@ -349,7 +294,6 @@ void ui_Screen8_screen_destroy(void)
     ui_Screen8_dashboardbutton = NULL;
     ui_Screen8_menubutton = NULL;
     dial_needle   = NULL;
-    dial_peak     = NULL;
     dial_readout  = NULL;
     dial_shiftbar = NULL;
 }

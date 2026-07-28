@@ -94,8 +94,10 @@ void ui_Screen7_screen_init(void)
     ui_Screen7_dashboardbutton = nav.dashboard_btn;
     ui_Screen7_menubutton = nav.menu_btn;
 
-    // Title
-    ui_screen_title_create(ui_Screen7, "RPM 2");
+    ui_rpm_carousel_attach(ui_Screen7);
+
+    // No ui_screen_title_create() here: ui_rpm_carousel_attach() names this view
+    // the same way as the other two rev counters.
 
     // Digital readout. Fixed width and centred text, so the invalidated area is
     // the same every update instead of growing and shrinking with the digits.

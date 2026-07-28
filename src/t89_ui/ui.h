@@ -36,6 +36,7 @@ extern "C" {
 #include "screens/ui_Screen6.h"
 #include "screens/ui_Screen7.h"
 #include "screens/ui_Screen8.h"
+#include "screens/ui_Screen9.h"
 
 ///////////////////// VARIABLES ////////////////////
 
@@ -62,6 +63,7 @@ LV_IMG_DECLARE(ui_img_10_png);    // assets/10.png
 LV_IMG_DECLARE(ui_img_1878767743);    // assets/CAR (1).png
 extern const lv_image_dsc_t clutch;    // Clutch plate image
 extern const lv_image_dsc_t pot_ver_knob;    // Vertical potentiometer knob
+extern const lv_image_dsc_t fancypointer;    // Antique gauge needle, boss at (24, 26)
 
 // FONTS
 LV_FONT_DECLARE(ui_font_DSEG20);
@@ -86,8 +88,12 @@ void ui_event_settingsbutton_to_screen3(lv_event_t * e);
 void ui_event_settingsbutton_to_screen4(lv_event_t * e);
 void ui_event_settingsbutton_to_screen5(lv_event_t * e);
 void ui_event_settingsbutton_to_screen6(lv_event_t * e);
-void ui_event_settingsbutton_to_screen7(lv_event_t * e);
-void ui_event_settingsbutton_to_screen8(lv_event_t * e);
+
+// Make `screen` part of the RPM carousel: swipe left/right to reach the other
+// rev counters. Also draws the view's name and the position dots, so the three
+// label themselves identically. Called by Screen6/7/8 from their own init,
+// after the screen object exists.
+void ui_rpm_carousel_attach(lv_obj_t * screen);
 
 #ifdef __cplusplus
 } /*extern "C"*/

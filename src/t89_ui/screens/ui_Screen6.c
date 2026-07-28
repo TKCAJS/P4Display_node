@@ -147,6 +147,8 @@ void ui_Screen6_screen_init(void)
     ui_Screen6_dashboardbutton = nav.dashboard_btn;
     ui_Screen6_menubutton = nav.menu_btn;
 
+    ui_rpm_carousel_attach(ui_Screen6);
+
     // Gauge container: zero padding, so every child's coordinates are dial-local
     // and the centre is exactly (GAUGE_R, GAUGE_R). Centred on the 480 px height,
     // which leaves the 5 px top and bottom gap a bezel can later sit in.

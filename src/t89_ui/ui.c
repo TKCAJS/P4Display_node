@@ -45,6 +45,7 @@ void ui_init(void)
     ui_Screen6_screen_init();
     ui_Screen7_screen_init();
     ui_Screen8_screen_init();
+    ui_Screen9_screen_init();
     ui____initial_actions0 = lv_obj_create(NULL);
 
     lv_disp_load_scr(ui_Screen1);
@@ -60,6 +61,7 @@ void ui_destroy(void)
     ui_Screen6_screen_destroy();
     ui_Screen7_screen_destroy();
     ui_Screen8_screen_destroy();
+    ui_Screen9_screen_destroy();
 }
 
 // Event callbacks
@@ -93,12 +95,107 @@ void ui_event_settingsbutton_to_screen6(lv_event_t * e)
     _ui_screen_change(&ui_Screen6, LV_SCREEN_LOAD_ANIM_NONE, 0, 0, &ui_Screen6_screen_init);
 }
 
-void ui_event_settingsbutton_to_screen7(lv_event_t * e)
+// RPM carousel
+//
+// The three rev counters are one menu entry ("RPM ALT" -> Screen6) and are
+// otherwise reached by swiping: left for the next view, right for the previous,
+// wrapping at both ends. This is the only screen change on the node that is not
+// a button press.
+//
+// LVGL walks a gesture up the parents while they have LV_OBJ_FLAG_GESTURE_BUBBLE
+// (every object gets it except screens, which have no parent), so a handler on
+// the screen catches a swipe that started anywhere on it — over the dial, over a
+// nav button, anywhere.
+#define RPM_CAROUSEL_ANIM_MS 180
+
+// Name and dots sit in the black top-left strip, right of the dashboard button
+// (80x50 at the corner), which is clear of the artwork on all three views.
+#define RPM_HEADER_X    96
+#define RPM_NAME_Y      14
+#define RPM_DOT_Y       46
+#define RPM_DOT_SIZE    10
+#define RPM_DOT_PITCH   18
+
+typedef struct {
+    lv_obj_t ** screen;
+    void (*init)(void);
+    const char * name;
+} rpm_view_t;
+
+static const rpm_view_t rpm_views[] = {
+    { &ui_Screen6, ui_Screen6_screen_init, "RPM 1" },
+    { &ui_Screen7, ui_Screen7_screen_init, "RPM 2" },
+    { &ui_Screen8, ui_Screen8_screen_init, "RPM 3" },
+    { &ui_Screen9, ui_Screen9_screen_init, "RPM 4" },
+};
+#define RPM_VIEW_CNT (sizeof(rpm_views) / sizeof(rpm_views[0]))
+
+// RPM_VIEW_CNT if `screen` is not one of the carousel views.
+static uint32_t rpm_view_index(const lv_obj_t * screen)
 {
-    _ui_screen_change(&ui_Screen7, LV_SCREEN_LOAD_ANIM_NONE, 0, 0, &ui_Screen7_screen_init);
+    uint32_t i;
+    for(i = 0; i < RPM_VIEW_CNT; i++) {
+        if(*rpm_views[i].screen == screen) break;
+    }
+    return i;
 }
 
-void ui_event_settingsbutton_to_screen8(lv_event_t * e)
+static void rpm_carousel_gesture_cb(lv_event_t * e)
 {
-    _ui_screen_change(&ui_Screen8, LV_SCREEN_LOAD_ANIM_NONE, 0, 0, &ui_Screen8_screen_init);
+    lv_indev_t * indev = lv_indev_active();
+    if(indev == NULL) return;
+
+    const lv_dir_t dir = lv_indev_get_gesture_dir(indev);
+    if(dir != LV_DIR_LEFT && dir != LV_DIR_RIGHT) return;
+
+    /*The handler is on the screen, so current_target is the screen even though
+      the gesture bubbled up from whatever the finger landed on.*/
+    const uint32_t i = rpm_view_index(lv_event_get_current_target_obj(e));
+    if(i == RPM_VIEW_CNT) return;
+
+    const uint32_t to = (dir == LV_DIR_LEFT) ? (i + 1) % RPM_VIEW_CNT
+                        : (i + RPM_VIEW_CNT - 1) % RPM_VIEW_CNT;
+
+    /*The gesture fires while the finger is still down, so swallow the rest of
+      this press: without it the release also lands as a click on whatever is
+      now under the finger on the screen that just arrived.*/
+    lv_indev_wait_release(indev);
+
+    /*Swiping left drags the current view off to the left.*/
+    _ui_screen_change(rpm_views[to].screen,
+                      dir == LV_DIR_LEFT ? LV_SCREEN_LOAD_ANIM_MOVE_LEFT
+                      : LV_SCREEN_LOAD_ANIM_MOVE_RIGHT,
+                      RPM_CAROUSEL_ANIM_MS, 0, rpm_views[to].init);
+}
+
+void ui_rpm_carousel_attach(lv_obj_t * screen)
+{
+    const uint32_t idx = rpm_view_index(screen);
+    if(idx == RPM_VIEW_CNT) return;
+
+    lv_obj_add_event_cb(screen, rpm_carousel_gesture_cb, LV_EVENT_GESTURE, NULL);
+
+    // The views are siblings, so their identity is drawn here rather than by
+    // each screen: same name style, same place, and dots showing which of the
+    // three you are on. Nothing updates them afterwards — a screen only ever
+    // shows its own position.
+    lv_obj_t * name = lv_label_create(screen);
+    lv_label_set_text(name, rpm_views[idx].name);
+    lv_obj_set_style_text_color(name, lv_color_hex(0x7A8290), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(name, &lv_font_montserrat_20, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_align(name, LV_ALIGN_TOP_LEFT, RPM_HEADER_X, RPM_NAME_Y);
+
+    for(uint32_t i = 0; i < RPM_VIEW_CNT; i++) {
+        lv_obj_t * dot = lv_obj_create(screen);
+        lv_obj_set_size(dot, RPM_DOT_SIZE, RPM_DOT_SIZE);
+        lv_obj_align(dot, LV_ALIGN_TOP_LEFT, RPM_HEADER_X + (int32_t)i * RPM_DOT_PITCH, RPM_DOT_Y);
+        lv_obj_remove_flag(dot, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_bg_color(dot,
+                                  i == idx ? lv_color_hex(0xE8E8F0) : lv_color_hex(0x3A4150),
+                                  LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_bg_opa(dot, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_border_width(dot, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_pad_all(dot, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    }
 }
