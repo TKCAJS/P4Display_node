@@ -24,6 +24,7 @@ extern uint32_t LV_EVENT_GET_COMP_CHILD;
 #include "ui_comp_screen_nav_buttons.h"
 #include "ui_comp_screen_title.h"
 #include "ui_comp_vertical_slider.h"
+#include "ui_comp_temp_gauge.h"
 
 #ifdef __cplusplus
 } /*extern "C"*/

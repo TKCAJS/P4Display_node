@@ -19,6 +19,10 @@ struct CanSnapshot {
     float    oilTemp;
     float    radiatorTemp;
     float    radOutTemp;
+    float    tps;           // throttle position, %
+    float    fuel1;         // fuel tank 1, %
+    float    fuel2;         // fuel tank 2, %
+    float    oilPressure;   // oil pressure, kPa
     uint8_t  warningFlags;
     uint8_t  shiftMode;
     uint8_t  stackTarget;
@@ -42,7 +46,11 @@ inline CanSnapshot canGetSnapshot() {
     s.radiatorTemp = get_temperature();            // 20..80 sweep
     s.engineTemp   = s.radiatorTemp + 6.0f;
     s.radOutTemp   = s.radiatorTemp - 9.0f;
-    s.oilTemp      = get_fuel_level();             // reused sweep for the oil bar
+    s.oilTemp      = 0.0f;                         // placeholder, no oil node on this build
+    s.fuel1        = get_fuel_level();             // fuel simulator sweep
+    s.fuel2        = 0.0f;
+    s.tps          = 0.0f;
+    s.oilPressure  = 0.0f;
     s.pumpDuty     = (uint8_t)get_pump_duty();     // own sweep, phase-shifted off the temps
     s.shiftMode    = 0;
     s.warningFlags = 0;

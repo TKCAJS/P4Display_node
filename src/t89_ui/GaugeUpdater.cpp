@@ -96,13 +96,19 @@ void updateGauges() {
         return;
     }
 
-    // Update temperature gauge (radiator temp from sensor node Dallas DS18B20)
-    // and the cooling-page engine/rad-out temp (NTC) and pump duty arcs.
-    //
-    // All cooling-page updates go through step_unit(), so nothing repaints
-    // until the value it renders has actually changed by a whole °C / %.
+    // Update temperature gauges (main screen: eng/dallas/radout) and cooling arcs.
+    // All updates go through step_unit(), so nothing repaints until the value
+    // has actually changed by a whole °C.
     if (now - last_temp_update >= TEMP_UPDATE_MS) {
         char buf[8];
+
+        static int shown_engine = INT_MIN;
+        if (step_unit(can.engineTemp, &shown_engine)) {
+            lv_bar_set_value(ui_gaugetemp_eng, shown_engine, LV_ANIM_OFF);
+            lv_arc_set_value(ui_Screen4_engine_arc, shown_engine);
+            snprintf(buf, sizeof(buf), "%d", shown_engine);
+            lv_label_set_text(ui_Screen4_engine_label, buf);
+        }
 
         static int shown_radiator = INT_MIN;
         if (step_unit(can.radiatorTemp, &shown_radiator)) {
@@ -113,15 +119,9 @@ void updateGauges() {
             lv_label_set_text(ui_Screen4_radiator_label, buf);
         }
 
-        static int shown_engine = INT_MIN;
-        if (step_unit(can.engineTemp, &shown_engine)) {
-            lv_arc_set_value(ui_Screen4_engine_arc, shown_engine);
-            snprintf(buf, sizeof(buf), "%d", shown_engine);
-            lv_label_set_text(ui_Screen4_engine_label, buf);
-        }
-
         static int shown_radout = INT_MIN;
         if (step_unit(can.radOutTemp, &shown_radout)) {
+            lv_bar_set_value(ui_gaugetemp_radout, shown_radout, LV_ANIM_OFF);
             lv_arc_set_value(ui_Screen4_radout_arc, shown_radout);
             snprintf(buf, sizeof(buf), "%d", shown_radout);
             lv_label_set_text(ui_Screen4_radout_label, buf);
@@ -136,9 +136,15 @@ void updateGauges() {
         last_temp_update = now;
     }
 
-    // Update fuel gauge (oil temp)
+    // Update fuel gauge (fuel tank 1) with exponential smoothing for slosh damping
     if (now - last_fuel_update >= FUEL_UPDATE_MS) {
-        lv_bar_set_value(ui_gaugefuel1, (int)can.oilTemp, LV_ANIM_OFF);
+        static float smoothed_fuel = -1.0f;
+        if (smoothed_fuel < 0) {
+            smoothed_fuel = can.fuel1;
+        } else {
+            smoothed_fuel = smoothed_fuel * 0.75f + can.fuel1 * 0.25f;
+        }
+        lv_bar_set_value(ui_gaugefuel1, (int)smoothed_fuel, LV_ANIM_OFF);
         last_fuel_update = now;
     }
 

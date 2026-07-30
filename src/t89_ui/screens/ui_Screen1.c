@@ -11,7 +11,9 @@ lv_obj_t * ui_Container1 = NULL;
 lv_obj_t * ui_gaugerpm = NULL;
 lv_obj_t * ui_headerimg = NULL;
 lv_obj_t * ui_gaugefuel = NULL;
+lv_obj_t * ui_gaugetemp_eng = NULL;
 lv_obj_t * ui_gaugetemp = NULL;
+lv_obj_t * ui_gaugetemp_radout = NULL;
 lv_obj_t * ui_rpmbottom = NULL;
 lv_obj_t * ui_rpmtop = NULL;
 lv_obj_t * ui_Image7 = NULL;
@@ -31,11 +33,11 @@ lv_obj_t * ui_Button4 = NULL;
 lv_obj_t * ui_Button5 = NULL;
 lv_obj_t * ui_Button6 = NULL;
 lv_obj_t * ui_Button7 = NULL;
-lv_obj_t * ui_gaugetemp1 = NULL;
 lv_obj_t * ui_gaugefuel1 = NULL;
 lv_obj_t * ui_scalefuel1 = NULL;
-lv_obj_t * ui_scaletemp1 = NULL;
+lv_obj_t * ui_scaletemp_eng = NULL;
 lv_obj_t * ui_scaletemp = NULL;
+lv_obj_t * ui_scaletemp_radout = NULL;
 lv_obj_t * ui_menubutton = NULL;
 
 
@@ -116,54 +118,16 @@ void ui_Screen1_screen_init(void)
     //Compensating for LVGL9.1 draw crash with bar/slider max value when top-padding is nonzero and right-padding is 0
     if(lv_obj_get_style_pad_top(ui_gaugefuel, LV_PART_MAIN) > 0) lv_obj_set_style_pad_right(ui_gaugefuel,
                                                                                                 lv_obj_get_style_pad_right(ui_gaugefuel, LV_PART_MAIN) + 1, LV_PART_MAIN);
-    ui_gaugetemp = lv_bar_create(ui_Screen1);
-    lv_bar_set_range(ui_gaugetemp, 0, 125);
-    lv_bar_set_value(ui_gaugetemp, 25, LV_ANIM_OFF);
-    lv_bar_set_start_value(ui_gaugetemp, 0, LV_ANIM_OFF);
-    lv_obj_set_size(ui_gaugetemp, 50, 160);
-    lv_obj_set_pos(ui_gaugetemp, -205, 150);
-    lv_obj_set_align(ui_gaugetemp, LV_ALIGN_CENTER);
-    lv_obj_set_style_radius(ui_gaugetemp, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_color(ui_gaugetemp, lv_color_hex(0xA8CFEC), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_opa(ui_gaugetemp, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_border_color(ui_gaugetemp, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_border_opa(ui_gaugetemp, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_border_width(ui_gaugetemp, 1, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_outline_color(ui_gaugetemp, lv_color_hex(0x0A92D4), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_outline_opa(ui_gaugetemp, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_outline_width(ui_gaugetemp, 10, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_outline_pad(ui_gaugetemp, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
 
-    lv_obj_set_style_radius(ui_gaugetemp, 0, LV_PART_INDICATOR | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_color(ui_gaugetemp, lv_color_hex(0x0A92D4), LV_PART_INDICATOR | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_opa(ui_gaugetemp, 255, LV_PART_INDICATOR | LV_STATE_DEFAULT);
-    lv_obj_set_style_border_width(ui_gaugetemp, 1, LV_PART_INDICATOR | LV_STATE_DEFAULT);
-
-    //Compensating for LVGL9.1 draw crash with bar/slider max value when top-padding is nonzero and right-padding is 0
-    if(lv_obj_get_style_pad_top(ui_gaugetemp, LV_PART_MAIN) > 0) lv_obj_set_style_pad_right(ui_gaugetemp,
-                                                                                                lv_obj_get_style_pad_right(ui_gaugetemp, LV_PART_MAIN) + 1, LV_PART_MAIN);
-
-            ui_scaletemp = lv_scale_create(ui_Screen1);
-            lv_obj_set_pos(ui_scaletemp, 172, 300);
-            lv_obj_set_size(ui_scaletemp, 40, 160);
-            lv_scale_set_mode(ui_scaletemp, LV_SCALE_MODE_VERTICAL_RIGHT);
-            lv_scale_set_range(ui_scaletemp, 0, 125);
-            lv_scale_set_total_tick_count(ui_scaletemp, 26);
-            lv_scale_set_major_tick_every(ui_scaletemp, 5);
-            lv_scale_set_label_show(ui_scaletemp, true);
-            lv_obj_set_style_length(ui_scaletemp, 5, LV_PART_ITEMS | LV_STATE_DEFAULT);
-            lv_obj_set_style_line_width(ui_scaletemp, 3, LV_PART_ITEMS | LV_STATE_DEFAULT);
-            lv_obj_set_style_line_rounded(ui_scaletemp, true, LV_PART_ITEMS | LV_STATE_DEFAULT);
-            lv_obj_set_style_line_color(ui_scaletemp, lv_color_hex(0xffff0000), LV_PART_ITEMS | LV_STATE_DEFAULT);
-            lv_obj_set_style_length(ui_scaletemp, 10, LV_PART_INDICATOR | LV_STATE_DEFAULT);
-            lv_obj_set_style_bg_color(ui_scaletemp, lv_color_hex(0xff52e80b), LV_PART_INDICATOR | LV_STATE_DEFAULT);
-            lv_obj_set_style_border_color(ui_scaletemp, lv_color_hex(0xff217ad5), LV_PART_INDICATOR | LV_STATE_DEFAULT);
-            lv_obj_set_style_border_width(ui_scaletemp, 2, LV_PART_INDICATOR | LV_STATE_DEFAULT);
-            lv_obj_set_style_bg_color(ui_scaletemp, lv_color_hex(0xfff4422f), LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_obj_set_style_bg_opa(ui_scaletemp, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_obj_set_style_text_color(ui_scaletemp, lv_color_hex(0x00000000), LV_PART_INDICATOR | LV_STATE_DEFAULT);
-                static const char * custom_labels[] = {"0 °C", "25", "50", "75", "100","125", NULL};
-            lv_scale_set_text_src(ui_scaletemp, custom_labels);  
+    // Three temperature gauges, left to right: engine, radiator (Dallas
+    // DS18B20), radiator outlet. Geometry, colours and styling all live in
+    // components/ui_comp_temp_gauge.{c,h} — only the x offset differs here.
+    ui_temp_gauge_t g_eng    = ui_temp_gauge_create(ui_Screen1, -UI_TEMP_GAUGE_PITCH * 2 - 130);
+    ui_temp_gauge_t g_rad    = ui_temp_gauge_create(ui_Screen1, -UI_TEMP_GAUGE_PITCH - 130);
+    ui_temp_gauge_t g_radout = ui_temp_gauge_create(ui_Screen1, -130);
+    ui_gaugetemp_eng     = g_eng.bar;     ui_scaletemp_eng     = g_eng.scale;
+    ui_gaugetemp         = g_rad.bar;     ui_scaletemp         = g_rad.scale;
+    ui_gaugetemp_radout  = g_radout.bar;  ui_scaletemp_radout  = g_radout.scale;
 
   
                                                                                 
@@ -356,52 +320,9 @@ lv_obj_set_style_border_opa(ui_Button5, 255, LV_PART_MAIN);
 lv_led_off(ui_Button5);
 
 
-    ui_gaugetemp1 = lv_bar_create(ui_Screen1);
-    lv_bar_set_value(ui_gaugetemp1, 25, LV_ANIM_OFF);
-    lv_bar_set_start_value(ui_gaugetemp1, 0, LV_ANIM_OFF);
-    lv_obj_set_size(ui_gaugetemp1, 50, 180);
-    lv_obj_set_pos(ui_gaugetemp1, -130, 140);
-    lv_obj_set_align(ui_gaugetemp1, LV_ALIGN_CENTER);
-    lv_obj_set_style_radius(ui_gaugetemp1, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_color(ui_gaugetemp1, lv_color_hex(0x01f3ff), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_opa(ui_gaugetemp1, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_border_color(ui_gaugetemp1, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_border_opa(ui_gaugetemp1, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_border_width(ui_gaugetemp1, 1, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_outline_color(ui_gaugetemp1, lv_color_hex(0x0A92D4), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_outline_opa(ui_gaugetemp1, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_outline_width(ui_gaugetemp1, 10, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_outline_pad(ui_gaugetemp1, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_radius(ui_gaugetemp1, 0, LV_PART_INDICATOR | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_color(ui_gaugetemp1, lv_color_hex(0x0f0fff), LV_PART_INDICATOR | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_opa(ui_gaugetemp1, 255, LV_PART_INDICATOR | LV_STATE_DEFAULT);
-    lv_obj_set_style_border_width(ui_gaugetemp1, 1, LV_PART_INDICATOR | LV_STATE_DEFAULT);
-
-    //Compensating for LVGL9.1 draw crash with bar/slider max value when top-padding is nonzero and right-padding is 0
-    if(lv_obj_get_style_pad_top(ui_gaugetemp1, LV_PART_MAIN) > 0) lv_obj_set_style_pad_right(ui_gaugetemp1, lv_obj_get_style_pad_right(ui_gaugetemp1, LV_PART_MAIN) + 1, LV_PART_MAIN);
-    
-            ui_scaletemp1 = lv_scale_create(ui_Screen1);
-            lv_obj_set_pos(ui_scaletemp1, -134, 140);
-            lv_obj_set_size(ui_scaletemp1, 40, 160);
-            lv_obj_set_align(ui_scaletemp1, LV_ALIGN_CENTER);
-            lv_scale_set_mode(ui_scaletemp1, LV_SCALE_MODE_VERTICAL_RIGHT);
-            lv_scale_set_range(ui_scaletemp1, 0, 100);
-            lv_scale_set_total_tick_count(ui_scaletemp1, 21);
-            lv_scale_set_major_tick_every(ui_scaletemp1, 5);
-            lv_scale_set_label_show(ui_scaletemp1, true);
-            lv_obj_set_style_length(ui_scaletemp1, 5, LV_PART_ITEMS | LV_STATE_DEFAULT);
-            lv_obj_set_style_line_width(ui_scaletemp1, 3, LV_PART_ITEMS | LV_STATE_DEFAULT);
-            lv_obj_set_style_line_rounded(ui_scaletemp1, true, LV_PART_ITEMS | LV_STATE_DEFAULT);
-            lv_obj_set_style_line_color(ui_scaletemp1, lv_color_hex(0xffff0000), LV_PART_ITEMS | LV_STATE_DEFAULT);
-            lv_obj_set_style_length(ui_scaletemp1, 10, LV_PART_INDICATOR | LV_STATE_DEFAULT);
-            lv_obj_set_style_bg_color(ui_scaletemp1, lv_color_hex(0xff52e80b), LV_PART_INDICATOR | LV_STATE_DEFAULT);
-            lv_obj_set_style_border_color(ui_scaletemp1, lv_color_hex(0xff217ad5), LV_PART_INDICATOR | LV_STATE_DEFAULT);
-            lv_obj_set_style_border_width(ui_scaletemp1, 2, LV_PART_INDICATOR | LV_STATE_DEFAULT);
-            lv_obj_set_style_bg_color(ui_scaletemp1, lv_color_hex(0xfff4422f), LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_obj_set_style_bg_opa(ui_scaletemp1, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-            lv_obj_set_style_text_color(ui_scaletemp1, lv_color_hex(0x00000000), LV_PART_INDICATOR | LV_STATE_DEFAULT);
-                static const char * custom_labels1[] = {"0 °C", "25", "50", "75", "100", NULL};
-            lv_scale_set_text_src(ui_scaletemp1, custom_labels1); 
+    // (ui_gaugetemp1 / ui_scaletemp1 removed: an orphaned 4th temp bar + 0-100
+    //  scale left over from the SquareLine export. Nothing drove them, and they
+    //  sat directly on top of the radiator-outlet gauge.)
                                                                                        
     
     ui_gaugefuel1 = lv_bar_create(ui_Screen1);
@@ -435,8 +356,8 @@ lv_led_off(ui_Button5);
             lv_obj_set_pos(ui_scalefuel1, 522, 300);
             lv_obj_set_size(ui_scalefuel1, 40, 160);
             lv_scale_set_mode(ui_scalefuel1, LV_SCALE_MODE_VERTICAL_RIGHT);
-            lv_scale_set_range(ui_scalefuel1, 0, 125);
-            lv_scale_set_total_tick_count(ui_scalefuel1, 26);
+            lv_scale_set_range(ui_scalefuel1, 0, 100);
+            lv_scale_set_total_tick_count(ui_scalefuel1, 21);
             lv_scale_set_major_tick_every(ui_scalefuel1, 5);
             lv_scale_set_label_show(ui_scalefuel1, true);
             lv_obj_set_style_length(ui_scalefuel1, 5, LV_PART_ITEMS | LV_STATE_DEFAULT);
@@ -467,7 +388,9 @@ void ui_Screen1_screen_destroy(void)
     ui_gaugerpm = NULL;
     ui_headerimg = NULL;
     ui_gaugefuel = NULL;
+    ui_gaugetemp_eng = NULL;
     ui_gaugetemp = NULL;
+    ui_gaugetemp_radout = NULL;
     ui_rpmbottom = NULL;
     ui_rpmtop = NULL;
     ui_Image7 = NULL;
@@ -487,11 +410,11 @@ void ui_Screen1_screen_destroy(void)
     ui_Button5 = NULL;
     ui_Button6 = NULL;
     ui_Button7 = NULL;
-    ui_gaugetemp1 = NULL;
     ui_gaugefuel1 = NULL;
     ui_scalefuel1 = NULL;
-    ui_scaletemp1 = NULL;
+    ui_scaletemp_eng = NULL;
     ui_scaletemp = NULL;
+    ui_scaletemp_radout = NULL;
     ui_menubutton = NULL;
     //ui_menubutton1 = NULL;
     
