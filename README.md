@@ -26,6 +26,14 @@ for exactly which values are sourced and which are guesses.
 | `t89_ui` (default) | 4.3" dashboard: SquareLine UI + GaugeUpdater + SDLogger + PitServer, stubbed CAN |
 | `t89_ui_1060` | the same dashboard on the 7" board, scaled 1.25x |
 | `c6_wifi` | C6 co-processor tool: reports/updates ESP-Hosted slave firmware (embedded image), SoftAP test |
+| `c6_wifi_1060` | the same tool built against the 7" board definition |
+
+The C6 slave firmware is **per unit, not per model** — each physical board has
+its own C6 carrying whatever the factory shipped, so a new board needs
+`c6_wifi*` run once before WiFi (and therefore pit mode) works. The tool is
+self-checking and idempotent: it only flashes on a version mismatch, otherwise
+it just reports and runs the SoftAP test. The required version is set by the
+Arduino core, not by the panel, so both boards want the same slave image.
 
 Phase-1/2 bring-up envs (`colorbar_test`, `lvgl_test`, `lvgl9_test`) were removed once
 `t89_ui` superseded them — see git history if that scaffolding is needed again.
