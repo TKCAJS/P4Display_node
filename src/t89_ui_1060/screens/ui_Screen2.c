@@ -1,0 +1,75 @@
+// Screen 2 - Hello World Screen
+
+#include "ui.h"
+#include "ui_scale.h"   /* 1.25x layout scale for the 1024x600 panel */
+
+lv_obj_t * ui_Screen2;
+lv_obj_t * ui_dashboardbutton = NULL;
+lv_obj_t * ui_Screen2_clutch_btn = NULL;
+lv_obj_t * ui_Screen2_cooling_btn = NULL;
+lv_obj_t * ui_Screen2_settings_btn = NULL;
+lv_obj_t * ui_Screen2_rpmalt_btn = NULL;
+//lv_obj_t * ui_Screen2_BackBtn;
+// lv_obj_t * ui_Screen2_Label;
+
+// Every menu entry is the same ui_settingsbutton template with a centred caption
+// and a screen-change callback — only the x offset, caption and target differ.
+static lv_obj_t * ui_menu_entry_create(int32_t x, const char * text, lv_event_cb_t on_click)
+{
+    lv_obj_t * btn = ui_settingsbutton_create(ui_Screen2);
+    lv_obj_set_pos(btn, x, 0);
+    lv_obj_add_event_cb(btn, on_click, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t * label = lv_label_create(btn);
+    lv_label_set_text(label, text);
+    lv_obj_center(label);
+    return btn;
+}
+
+void ui_Screen2_screen_init(void)
+{
+    ui_Screen2 = lv_obj_create(NULL);
+    lv_obj_remove_flag(ui_Screen2, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
+    lv_obj_set_style_bg_color(ui_Screen2, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(ui_Screen2, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_image_src(ui_Screen2, &ui_img_1878767743, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    // // Hello World Label
+    // ui_Screen2_Label = lv_label_create(ui_Screen2);
+    // lv_obj_set_width(ui_Screen2_Label, LV_SIZE_CONTENT);
+    // lv_obj_set_height(ui_Screen2_Label, LV_SIZE_CONTENT);
+    // lv_obj_set_x(ui_Screen2_Label, 0);
+    // lv_obj_set_y(ui_Screen2_Label, 0);
+    // lv_obj_set_align(ui_Screen2_Label, LV_ALIGN_CENTER);
+    // lv_label_set_text(ui_Screen2_Label, "Hello World");
+    // lv_obj_set_style_text_color(ui_Screen2_Label, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
+    // lv_obj_set_style_text_font(ui_Screen2_Label, &ui_font_inkfree40, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    ui_dashboardbutton = ui_dashboardbutton_create(ui_Screen2);
+    lv_obj_set_pos(ui_dashboardbutton, 0, 0);
+
+    // Title
+    ui_screen_title_create(ui_Screen2, "MENU");
+
+    // Menu buttons. ui_settingsbutton_create() aligns to LV_ALIGN_CENTER, so the
+    // x here is an offset from screen centre: four 160-wide buttons at 180 pitch
+    // span 700 of the 800 px, leaving a 50 px margin each side.
+    //
+    // RPM ALT is one entry for all three rev counters — it opens Screen6 and the
+    // other two are a swipe away (see ui_rpm_carousel_attach in ui.c).
+    ui_Screen2_clutch_btn = ui_menu_entry_create(-270, "CLUTCH", ui_event_settingsbutton_to_screen3);
+    ui_Screen2_cooling_btn = ui_menu_entry_create(-90, "COOLING", ui_event_settingsbutton_to_screen4);
+    ui_Screen2_settings_btn = ui_menu_entry_create(90, "SETTINGS", ui_event_settingsbutton_to_screen5);
+    ui_Screen2_rpmalt_btn = ui_menu_entry_create(270, "RPM ALT", ui_event_settingsbutton_to_screen6);
+}
+
+void ui_Screen2_screen_destroy(void)
+{
+    lv_obj_del(ui_Screen2);
+    ui_Screen2 = NULL;
+    ui_dashboardbutton = NULL;
+    ui_Screen2_clutch_btn = NULL;
+    ui_Screen2_cooling_btn = NULL;
+    ui_Screen2_settings_btn = NULL;
+    ui_Screen2_rpmalt_btn = NULL;
+}

@@ -1,0 +1,16 @@
+{
+  "name": "guition-jc1060p470-bsp",
+  "version": "0.1.0",
+  "description": "Board support for the Guition JC1060P470C-I-W-Y (ESP32-P4): JD9165 1024x600 MIPI-DSI panel (manual bring-up, no esp_lcd_jd9165 vendor component) + GT911 I2C touch. Double-buffered framebuffer, no rotation (glass is natively landscape).",
+  "keywords": "esp32-p4, esp32p4, jd9165, mipi-dsi, gt911, guition, jc1060p470, bsp, lcd, touch",
+  "license": "MIT",
+  "frameworks": ["arduino", "espidf"],
+  "platforms": ["espressif32"],
+  "headers": ["board_p4_1060.h"],
+  "dependencies": {
+    "esp_lcd_touch_gt911": "*"
+  },
+  "build": {
+    "srcFilter": ["+<*.c>"]
+  }
+}

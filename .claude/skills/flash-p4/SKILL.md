@@ -5,13 +5,21 @@ description: Build, flash and crash-triage the t89_ui firmware on the Guition ES
 
 # Building and flashing P4Display_node
 
-The default env is `t89_ui`. PlatformIO lives at
+The default env is `t89_ui` — the **4.3"** board (JC4880P443C, 480x800), which
+is the test rig. PlatformIO lives at
 `%USERPROFILE%\.platformio\penv\Scripts\platformio.exe` — call it by full path
 if `pio` is not on PATH.
 
 ```
 pio run -e t89_ui
 ```
+
+There is a second display env, `t89_ui_1060`, for the **7"** board
+(JC1060P470C, 1024x600) that goes in the car. Everything below applies to it
+with the env name swapped; it has never been run on hardware, so if it is the
+one being flashed, expect bring-up problems and check
+`lib/guition-jc1060p470-bsp/VENDORED.md` for which pins and timings are sourced
+versus guessed. Nothing about the two boards' upload path differs.
 
 ## After editing lv_conf_v9.h, clean first
 
